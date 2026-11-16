@@ -321,19 +321,42 @@ namespace Ledger
                 new { Name = "Playing", Tip = "played in the last 30 days", Games = real.Where(h => (h.LastPlayed ?? DateTime.MinValue) > DateTime.Now.AddDays(-30)).ToList() },
                 new { Name = "Sunk", Tip = "100h+", Games = real.Where(h => h.Hours >= 100).ToList() },
             };
-            Section("Shelves", "Your library sorted the way backlog trackers do it, worked out from playtime and dates.");
-            var max = shelves.Max(s => s.Games.Count);
-            foreach (var s in shelves)
+            Section("Shelves", "Your library sorted the way backlog trackers do it, worked out from playtime and dates. Click a shelf to open it.");
+            var max = shelves.Max(x => x.Games.Count);
+            foreach (var shelf in shelves)
             {
                 var grid = Row(new GridLength(150), new GridLength(1, GridUnitType.Star), new GridLength(340));
-                Place(grid, Text(s.Name, 14, bold: true), 0);
-                Place(grid, Bar(s.Games.Count, max, $"{s.Games.Count}"), 1);
-                var names = new TextBlock { FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
-                names.SetResourceReference(TextBlock.ForegroundProperty, "TextBrushDarker");
-                names.Text = s.Tip;
-                names.ToolTip = string.Join(Environment.NewLine, s.Games.OrderByDescending(h => h.LastPlayed ?? h.Acquired ?? DateTime.MinValue).Take(40).Select(h => h.Game.Name));
-                Place(grid, names, 2);
+                Place(grid, Text("▸ " + shelf.Name, 14, bold: true), 0);
+                Place(grid, Bar(shelf.Games.Count, max, $"{shelf.Games.Count}"), 1);
+                var tip = Text(shelf.Tip, 12, dim: true);
+                tip.TextTrimming = TextTrimming.CharacterEllipsis;
+                tip.TextWrapping = TextWrapping.NoWrap;
+                Place(grid, tip, 2);
+
+                // Expanding list, built lazily on first open (Never played can be 400+ games).
+                var list = new WrapPanel { Visibility = Visibility.Collapsed, Margin = new Thickness(150, 2, 0, 10) };
+                var members = shelf.Games.OrderByDescending(h => h.LastPlayed ?? h.Acquired ?? DateTime.MinValue).ToList();
+                var header = (TextBlock)grid.Children[0];
+                grid.Background = Brushes.Transparent; // hit-testable across the whole row
+                grid.Cursor = Cursors.Hand;
+                grid.MouseLeftButtonUp += (o, e) =>
+                {
+                    if (list.Children.Count == 0)
+                    {
+                        foreach (var h in members.Take(200))
+                        {
+                            var tb = new TextBlock { FontSize = 12, Margin = new Thickness(0, 1, 14, 1) };
+                            tb.Inlines.Add(GameLink(h, h.Hours > 0 ? $" {h.Hours:N0}h" : null));
+                            list.Children.Add(tb);
+                        }
+                        if (members.Count > 200) list.Children.Add(Text($"+{members.Count - 200} more", 12, dim: true));
+                    }
+                    var open = list.Visibility != Visibility.Visible;
+                    list.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+                    header.Text = (open ? "▾ " : "▸ ") + shelf.Name;
+                };
                 root.Children.Add(grid);
+                root.Children.Add(list);
             }
         }
 

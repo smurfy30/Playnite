@@ -90,6 +90,14 @@ namespace Ledger
         /// <summary>Render one Ledger tab (by name or index) to render-&lt;tab&gt;.png in the data dir.</summary>
         internal string RenderToPng(string tab = "Overview", int width = 1400)
         {
+            if (tab.Equals("full", StringComparison.OrdinalIgnoreCase))
+            {
+                // Whole control as the user sees it (header + tab strip), fixed window-ish size.
+                var full = new LedgerView(this, PlayniteApi, sync: true) { Height = 1000 };
+                var fp = System.IO.Path.Combine(GetPluginUserDataPath(), "render-full.png");
+                RenderElement(full, fp, width);
+                return fp;
+            }
             var i = Array.FindIndex(LedgerView.Tabs, t => t.Equals(tab, StringComparison.OrdinalIgnoreCase));
             if (i < 0 && !int.TryParse(tab, out i)) i = 0;
             var view = new LedgerView(this, PlayniteApi, sync: true);

@@ -29,7 +29,9 @@ Backups: `E:/projects/playnite-data-backups/` (manual tarballs + Playnite auto-b
 - Back up `playnite-data` with Playnite **closed** (LiteDB files are locked while it runs).
 
 ## Ledger (extensions/Ledger)
-Sidebar page **Ledger** + game menu **Ledger → History… / Mods…** + main menu **Extensions → Ledger**.
+Sidebar page **Ledger**, tabs: Overview (cards, insights, on this day, up next) · Backlog (shelves, quick wins,
+up next + Pick for me, oldest unplayed) · Installs (drives, stale, installed-never-played) · Stats (genre, store,
+decade, how-you-got-it breakdowns) · Timeline (started vs got, comfort/forgotten, most played) · Mods. Also + game menu **Ledger → History… / Mods…** + main menu **Extensions → Ledger**.
 
 | feature | source of truth |
 |---|---|
@@ -39,9 +41,11 @@ Sidebar page **Ledger** + game menu **Ledger → History… / Mods…** + main m
 | Timeline (started vs bought per year) | the two above |
 | Up next / Pick for me | taste = playtime share per genre; + rating; + installed |
 | Stale installs | installed, unplayed 180 days, by size |
+| HowLongToBeat times | the HLTB add-on: Ledger reads its cache, fills gaps by calling its `AddData(Game)` (non-interactive; `Get()` opens a picker). HLTB set to UseMatchValue 90 |
+| Tidy names | ™/® mangled to "?" (Epic) fixed only when a store record confirms it; log in `renames.json` |
 | Mods | Workshop `appworkshop_*.acf` (titles via public GetPublishedFileDetails, cached), Vortex staging dirs, r2modman `mods.yml` |
 
-URIs (for scripts): `playnite://ledger/render`, `render-mods/<name>`, `snapshot`, `import-steam`, `import-epic`, `probe/<url>` (dev: dump what the logged-in browser sees).
+URIs (for scripts): `playnite://ledger/render/<tab|full>`, `hltb-fill[/all]`, `tidy-names`, `render-mods/<name>`, `snapshot`, `import-steam`, `import-epic`, `probe/<url>` (dev: dump what the logged-in browser sees).
 
 ## Community add-ons (2026-11-16)
 Metadata: IGDB, Universal Steam, PCGamingWiki, Extra Metadata Loader.
@@ -74,6 +78,7 @@ Status: **built**, **try** (worth a spike), **park**, **blocked** (needs a decis
 11. **park** Rust/Tauri rewrite.
 
 ## Known caveats
+- Epic doesn't report last-played: played Epic games count as "last played unknown", never stale/forgotten.
 - Family-shared Steam games share the Steam PluginId; they have no licenses on your account.
 - Prefix matching: names < 6 chars only match exactly; never across a digit (Fallout ≠ Fallout 76).
 - A cluster of first-play dates on 2018-01-01/02 is probably a Steam sync artifact.
