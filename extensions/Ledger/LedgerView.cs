@@ -14,33 +14,38 @@ using System.Windows.Shapes;
 namespace Ledger
 {
     /// <summary>
-    /// The Ledger sidebar page. Built in code instead of XAML: it's a read-only report that is
-    /// rebuilt from scratch each time it opens, and code keeps all the queries next to their rows.
-    /// Uses Playnite theme resources (TextBrush, GlyphBrush, ...) so it follows the active theme.
+    /// The Ledger sidebar page: tabs of read-only reports, rebuilt from scratch on open/refresh.
+    /// Built in code (not XAML) so each query sits next to the rows it produces. Uses Playnite theme
+    /// resources (TextBrush, GlyphBrush, ...) so it follows the active theme.
     /// </summary>
     internal class LedgerView : UserControl
     {
+        public static readonly string[] Tabs = { "Overview", "Backlog", "Installs", "Stats", "Timeline", "Mods" };
+
         private readonly Ledger plugin;
         private readonly IPlayniteAPI api;
-        private readonly StackPanel root = new StackPanel { Margin = new Thickness(30, 20, 30, 30) };
+        private readonly Grid shell = new Grid();
+        private readonly TabControl tabs = new TabControl();
+        private StackPanel root; // the panel the Build* helpers currently write into
         private const int StaleDays = 180;
+        private int selectedTab;
 
         public LedgerView(Ledger plugin, IPlayniteAPI api, bool sync = false)
         {
             this.plugin = plugin;
             this.api = api;
-            Content = new ScrollViewer
-            {
-                Content = root,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
-            };
+            Content = shell;
+            tabs.Margin = new Thickness(20, 10, 20, 0);
+            tabs.SelectionChanged += (s, e) => { if (e.Source == tabs) selectedTab = tabs.SelectedIndex; };
             Refresh(sync);
         }
+
+        // ---------- data ----------
 
         private class Data
         {
             public HistoryIndex Index;
+            public List<GameHistory> Visible;
             public List<GameMods> Mods;
             public List<Suggestion> UpNext;
             public string Error;
@@ -52,6 +57,7 @@ namespace Ledger
             try
             {
                 d.Index = HistoryIndex.Build(api, plugin.GetPluginUserDataPath());
+                d.Visible = d.Index.Games.Where(h => !h.Game.Hidden).ToList();
                 d.UpNext = global::Ledger.UpNext.Rank(d.Index.Games);
                 d.Mods = ModIndex.Build(api, plugin.GetPluginUserDataPath());
             }
@@ -62,10 +68,7 @@ namespace Ledger
             return d;
         }
 
-        /// <summary>
-        /// Loads data off the UI thread (index + mod scan take ~1s on a big library), then builds the
-        /// page. sync=true does it all inline, for headless renders.
-        /// </summary>
+        /// <summary>Loads off the UI thread, then builds. sync=true does it inline (headless renders).</summary>
         public void Refresh(bool sync = false)
         {
             if (sync)
@@ -73,68 +76,170 @@ namespace Ledger
                 Show(Load());
                 return;
             }
-            root.Children.Clear();
-            root.Children.Add(Text("Ledger", 28, bold: true));
-            root.Children.Add(Text("Reading your library…", 13, dim: true));
+            shell.Children.Clear();
+            var loading = new StackPanel { Margin = new Thickness(30) };
+            loading.Children.Add(Text("Ledger", 28, bold: true));
+            loading.Children.Add(Text("Reading your library…", 13, dim: true));
+            shell.Children.Add(loading);
             System.Threading.Tasks.Task.Run(() => Load()).ContinueWith(t => Dispatcher.Invoke(() => Show(t.Result)));
         }
 
+        private readonly List<StackPanel> pages = new List<StackPanel>();
+
         private void Show(Data d)
         {
-            root.Children.Clear();
+            shell.Children.Clear();
+            pages.Clear();
             if (d.Error != null || d.Index == null)
             {
-                root.Children.Add(Text("Ledger couldn't build its index: " + d.Error, 14));
+                shell.Children.Add(Text("Ledger couldn't build its index: " + d.Error, 14));
                 return;
             }
-            var games = d.Index.Games.Where(h => !h.Game.Hidden).ToList();
-            BuildHeader(games);
-            BuildCards(games);
-            BuildOnThisDay(games);
-            BuildTimeline(games);
-            BuildUpNext(d.UpNext);
-            BuildMostPlayed(games);
-            BuildBacklog(games);
-            BuildStaleInstalls(games);
-            BuildMods(d.Mods);
-            BuildFooter();
+
+            var g = d.Visible;
+            var builders = new Action[]
+            {
+                () => { BuildCards(g); BuildInsights(g); BuildOnThisDay(g); BuildUpNext(d.UpNext, 5, withPick: true); },
+                () => { BuildShelves(g); BuildQuickWins(g); BuildUpNext(d.UpNext, 15, withPick: true); BuildOldestUnplayed(g); },
+                () => { BuildDrives(g); BuildStaleInstalls(g); BuildInstalledNeverPlayed(g); },
+                () => { BuildBreakdown("Genres", g, h => h.Game.Genres?.Select(x => x.Name)); BuildBreakdown("Stores", g, h => new[] { h.Game.Source?.Name ?? "(none)" });
+                        BuildBreakdown("Release decade", g, h => h.Game.ReleaseYear.HasValue ? new[] { (h.Game.ReleaseYear.Value / 10 * 10) + "s" } : null, sortByKey: true);
+                        if (g.Select(h => h.Game.CompletionStatus?.Name).Distinct().Count() > 2)
+                            BuildBreakdown("Completion status", g, h => new[] { h.Game.CompletionStatus?.Name ?? "(none)" });
+                        BuildBreakdown("How you got it", g, h => h.AcquiredVia == null ? null : new[] { NormalizeMethod(h.AcquiredVia) }); },
+                () => { BuildTimeline(g); BuildComfortAndForgotten(g); BuildMostPlayed(g); },
+                () => { BuildMods(d.Mods); BuildFooter(); },
+            };
+
+            tabs.Items.Clear();
+            for (var i = 0; i < Tabs.Length; i++)
+            {
+                root = new StackPanel { Margin = new Thickness(10, 10, 10, 30) };
+                try { builders[i](); }
+                catch (Exception e) { root.Children.Add(Text($"This tab failed: {e.Message}", 12, dim: true)); }
+                pages.Add(root);
+                tabs.Items.Add(new TabItem
+                {
+                    Header = Tabs[i],
+                    Content = new ScrollViewer { Content = root, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }
+                });
+            }
+            tabs.SelectedIndex = Math.Min(selectedTab, Tabs.Length - 1);
+
+            var header = BuildHeader(g);
+            DockPanel.SetDock(header, Dock.Top);
+            var dock = new DockPanel();
+            dock.Children.Add(header);
+            dock.Children.Add(tabs);
+            shell.Children.Add(dock);
         }
 
-        // ---------- sections ----------
-
-        private void BuildHeader(List<GameHistory> games)
+        /// <summary>For headless renders: the built content of one tab (call after a sync Refresh).</summary>
+        public StackPanel DetachPage(int i)
         {
-            var row = new DockPanel { LastChildFill = false, Margin = new Thickness(0, 0, 0, 10) };
+            var page = pages[Math.Max(0, Math.Min(i, pages.Count - 1))];
+            if (page.Parent is ScrollViewer sv) sv.Content = null;
+            return page;
+        }
+
+        /// <summary>
+        /// Not played since cutoff, *as far as we know*. Played games with no LastActivity (Epic doesn't
+        /// report it) are unknown, not stale. Never-played games count as stale.
+        /// </summary>
+        private static bool StaleSince(GameHistory h, DateTime cutoff) =>
+            h.LastPlayed.HasValue ? h.LastPlayed.Value < cutoff : !h.Played;
+
+        private static bool LastPlayedUnknown(GameHistory h) => h.Played && !h.LastPlayed.HasValue;
+
+        // ---------- header / overview ----------
+
+        private FrameworkElement BuildHeader(List<GameHistory> games)
+        {
+            var row = new DockPanel { LastChildFill = false, Margin = new Thickness(30, 20, 30, 0) };
             var title = new StackPanel();
             title.Children.Add(Text("Ledger", 28, bold: true));
-            title.Children.Add(Text("Your library's history: what you own, when you got it, when you started playing.", 13, dim: true));
+            title.Children.Add(Text("What you own, when you got it, what you play, and what's just taking up space.", 13, dim: true));
             DockPanel.SetDock(title, Dock.Left);
             row.Children.Add(title);
-
             var refresh = new Button { Content = "Refresh", Padding = new Thickness(12, 4, 12, 4), VerticalAlignment = VerticalAlignment.Center };
             refresh.Click += (s, e) => Refresh();
             DockPanel.SetDock(refresh, Dock.Right);
             row.Children.Add(refresh);
-            root.Children.Add(row);
+            return row;
         }
 
         private void BuildCards(List<GameHistory> games)
         {
-            var played = games.Count(h => h.Game.Playtime > 0);
+            var real = games.Where(h => !h.IsTool).ToList();
+            var played = real.Count(h => h.Played);
+            var backlog = real.Where(h => !h.Played).ToList();
+            var backlogHours = backlog.Where(h => h.Hltb != null).Sum(h => h.Hltb.Typical);
+            var installedBytes = real.Where(h => h.Game.IsInstalled).Sum(h => (double)(h.Game.InstallSize ?? 0));
+
             var wrap = new WrapPanel { Margin = new Thickness(0, 5, 0, 10) };
-            wrap.Children.Add(Card(games.Count.ToString("N0"), "games"));
-            wrap.Children.Add(Card(games.Sum(h => h.Hours).ToString("N0"), "hours played"));
-            wrap.Children.Add(Card(Pct(played, games.Count), $"played ({played:N0})"));
-            wrap.Children.Add(Card(games.Count(h => h.Game.IsInstalled).ToString("N0"), "installed"));
-            wrap.Children.Add(Card(games.Count(h => h.FirstPlayed.HasValue).ToString("N0"), "first-play dates"));
-            wrap.Children.Add(Card(games.Count(h => h.Acquired.HasValue).ToString("N0"), "acquisition dates"));
-            var waits = games.Where(h => h.DaysToFirstPlay.HasValue).Select(h => h.DaysToFirstPlay.Value).OrderBy(d => d).ToList();
-            if (waits.Count >= 5)
-            {
-                var median = waits[waits.Count / 2];
-                wrap.Children.Add(Card(median == 0 ? "same day" : $"{median:N0} days", $"median wait, purchase → first play ({waits.Count})"));
-            }
+            wrap.Children.Add(Card(real.Count.ToString("N0"), "games"));
+            wrap.Children.Add(Card(real.Sum(h => h.Hours).ToString("N0"), "hours played"));
+            wrap.Children.Add(Card(Pct(played, real.Count), $"played ({played:N0})"));
+            wrap.Children.Add(Card(backlog.Count.ToString("N0"), "never played"));
+            if (backlogHours > 0) wrap.Children.Add(Card($"{backlogHours:N0}h", $"main story, {backlog.Count(h => h.Hltb != null)} of {backlog.Count} unplayed timed"));
+            wrap.Children.Add(Card(Size(installedBytes), $"installed ({real.Count(h => h.Game.IsInstalled)})"));
             root.Children.Add(wrap);
+        }
+
+        /// <summary>Auto-written facts, Steam-Replay style. Each line is computed, never stored.</summary>
+        private void BuildInsights(List<GameHistory> games)
+        {
+            var real = games.Where(h => !h.IsTool).ToList();
+            var lines = new List<string>();
+            var year = DateTime.Now.Year;
+
+            var thisYear = real.Where(h => h.LastPlayed?.Year == year).ToList();
+            if (thisYear.Count > 0)
+            {
+                var top = thisYear.OrderByDescending(h => h.Hours).First();
+                lines.Add($"You've played {thisYear.Count} different games in {year}. The one you keep coming back to is {top.Game.Name} ({top.Hours:N0}h all-time).");
+            }
+
+            var gotThisYear = real.Count(h => h.Acquired?.Year == year);
+            var startedThisYear = real.Count(h => h.FirstPlayed?.Year == year);
+            if (gotThisYear > 0) lines.Add($"In {year} you got {gotThisYear} games and started {startedThisYear}.");
+
+            var backlog = real.Where(h => !h.Played).ToList();
+            var timed = backlog.Where(h => h.Hltb != null).ToList();
+            if (timed.Count > 10)
+            {
+                // Pace: hours played in the last 12 months is unknown before snapshots accumulate, so use
+                // lifetime hours ÷ years since the first known play as a rough rate.
+                var firstEver = real.Where(h => h.FirstPlayed.HasValue).Select(h => h.FirstPlayed.Value).DefaultIfEmpty(DateTime.Now.AddYears(-1)).Min();
+                var yearsActive = Math.Max(1, (DateTime.Now - firstEver).TotalDays / 365.25);
+                var perYear = real.Sum(h => h.Hours) / yearsActive;
+                var est = timed.Sum(h => h.Hltb.Typical) / timed.Count * backlog.Count;
+                lines.Add($"Finishing the main story of everything unplayed would take about {est:N0} hours (HowLongToBeat, with the {backlog.Count - timed.Count} untimed games estimated at the average). At your usual {perYear:N0} hours a year, that's {est / Math.Max(1, perYear):N1} years.");
+            }
+
+            var oldest = backlog.Where(h => h.Acquired.HasValue).OrderBy(h => h.Acquired).FirstOrDefault();
+            if (oldest != null) lines.Add($"Your oldest unplayed game is {oldest.Game.Name}, owned since {oldest.Acquired:MMMM yyyy}.");
+
+            var stale = real.Where(h => h.Game.IsInstalled && StaleSince(h, DateTime.Now.AddDays(-StaleDays))).ToList();
+            if (stale.Count > 0)
+                lines.Add($"{stale.Count} installed games haven't been touched in {StaleDays / 30} months: {Size(stale.Sum(h => (double)(h.Game.InstallSize ?? 0)))} you could reclaim.");
+
+            var genre = real.Where(h => h.Hours > 0).SelectMany(h => (h.Game.Genres ?? new List<Playnite.SDK.Models.Genre>()).Select(x => new { x.Name, h.Hours }))
+                            .GroupBy(x => x.Name).OrderByDescending(x => x.Sum(y => y.Hours)).FirstOrDefault();
+            if (genre != null) lines.Add($"Your most-played genre is {genre.Key}: {genre.Sum(x => x.Hours):N0} hours.");
+
+            var free = real.Count(h => h.AcquiredVia != null && NormalizeMethod(h.AcquiredVia) == "Free");
+            var freePlayed = real.Count(h => h.AcquiredVia != null && NormalizeMethod(h.AcquiredVia) == "Free" && h.Played);
+            if (free > 20) lines.Add($"{free} of your games were free. You've played {Pct(freePlayed, free)} of them.");
+
+            if (lines.Count == 0) return;
+            Section("Insights", null);
+            foreach (var l in lines)
+            {
+                var tb = Text("•  " + l, 14);
+                tb.Margin = new Thickness(0, 3, 0, 3);
+                root.Children.Add(tb);
+            }
         }
 
         private void BuildOnThisDay(List<GameHistory> games)
@@ -162,30 +267,235 @@ namespace Ledger
             }
         }
 
+        private void BuildUpNext(List<Suggestion> ranked, int count, bool withPick)
+        {
+            if (ranked == null || ranked.Count == 0) return;
+            Section("Up next", "Unplayed games ranked by your taste (hours per genre), review score and whether it's installed.");
+            if (withPick)
+            {
+                var pick = new Button { Content = "🎲  Pick for me", Padding = new Thickness(12, 4, 12, 4), Margin = new Thickness(0, 0, 0, 8), HorizontalAlignment = HorizontalAlignment.Left };
+                pick.Click += (s, e) => PickForMe(ranked);
+                root.Children.Add(pick);
+            }
+            foreach (var sug in ranked.Take(count))
+            {
+                var grid = Row(new GridLength(300), new GridLength(1, GridUnitType.Star), new GridLength(70), new GridLength(70), new GridLength(80));
+                Place(grid, LinkBlock(sug.H), 0);
+                Place(grid, Text(string.Join(" · ", sug.MatchedGenres), 12, dim: true), 1);
+                Place(grid, Text(sug.H.Hltb != null ? $"{sug.H.Hltb.Typical:N0}h" : "", 12, dim: true), 2);
+                Place(grid, Text(sug.Rating.HasValue ? $"★ {sug.Rating}" : "", 12, dim: true), 3);
+                Place(grid, Text(sug.H.Game.IsInstalled ? "installed" : "", 12, dim: true), 4);
+                root.Children.Add(grid);
+            }
+        }
+
+        private void PickForMe(List<Suggestion> ranked)
+        {
+            var p = UpNext.Pick(ranked);
+            if (p == null) return;
+            api.MainView.SwitchToLibraryView();
+            api.MainView.SelectGame(p.H.Game.Id);
+            var nl = Environment.NewLine;
+            api.Dialogs.ShowMessage(
+                p.H.Game.Name + nl + nl +
+                (p.MatchedGenres.Count > 0 ? $"You've put a lot of hours into {string.Join(", ", p.MatchedGenres)}." + nl : "") +
+                (p.Rating.HasValue ? $"Rated {p.Rating}/100." + nl : "") +
+                (p.H.Hltb != null ? $"About {p.H.Hltb.Typical:N0}h to beat." + nl : "") +
+                (p.H.Game.IsInstalled ? "Already installed." : "Not installed yet.") +
+                (p.H.Acquired.HasValue ? nl + $"You've owned it since {p.H.Acquired:MMMM yyyy}." : ""),
+                "Ledger · Pick for me");
+        }
+
+        // ---------- backlog ----------
+
+        /// <summary>Backloggd-style shelves, derived from playtime and recency (no manual status needed).</summary>
+        private void BuildShelves(List<GameHistory> games)
+        {
+            var real = games.Where(h => !h.IsTool).ToList();
+            var yearAgo = DateTime.Now.AddYears(-1);
+            var shelves = new[]
+            {
+                new { Name = "Never played", Tip = "zero playtime, no achievements", Games = real.Where(h => !h.Played).ToList() },
+                new { Name = "Tried", Tip = "under 2 hours", Games = real.Where(h => h.Played && h.Hours < 2).ToList() },
+                new { Name = "Abandoned", Tip = "2h+, under 70% of HLTB's main story (or under 10h), untouched for a year", Games = real.Where(h => h.Hours >= 2 && h.LastPlayed.HasValue && h.LastPlayed < yearAgo && (h.Hltb != null ? h.Hours < h.Hltb.MainHours * 0.7 : h.Hours < 10)).ToList() },
+                new { Name = "Playing", Tip = "played in the last 30 days", Games = real.Where(h => (h.LastPlayed ?? DateTime.MinValue) > DateTime.Now.AddDays(-30)).ToList() },
+                new { Name = "Sunk", Tip = "100h+", Games = real.Where(h => h.Hours >= 100).ToList() },
+            };
+            Section("Shelves", "Your library sorted the way backlog trackers do it, worked out from playtime and dates.");
+            var max = shelves.Max(s => s.Games.Count);
+            foreach (var s in shelves)
+            {
+                var grid = Row(new GridLength(150), new GridLength(1, GridUnitType.Star), new GridLength(340));
+                Place(grid, Text(s.Name, 14, bold: true), 0);
+                Place(grid, Bar(s.Games.Count, max, $"{s.Games.Count}"), 1);
+                var names = new TextBlock { FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+                names.SetResourceReference(TextBlock.ForegroundProperty, "TextBrushDarker");
+                names.Text = s.Tip;
+                names.ToolTip = string.Join(Environment.NewLine, s.Games.OrderByDescending(h => h.LastPlayed ?? h.Acquired ?? DateTime.MinValue).Take(40).Select(h => h.Game.Name));
+                Place(grid, names, 2);
+                root.Children.Add(grid);
+            }
+        }
+
+        private void BuildQuickWins(List<GameHistory> games)
+        {
+            var wins = games.Where(h => !h.IsTool && !h.Played && h.Hltb != null && h.Hltb.MainHours > 0.3)
+                            .OrderByDescending(h => h.Game.IsInstalled).ThenBy(h => h.Hltb.MainHours).Take(12).ToList();
+            Section("Quick wins", "Unplayed and short (HowLongToBeat main story). Installed first, so you can start now.");
+            if (wins.Count == 0)
+            {
+                root.Children.Add(Text("No HowLongToBeat times yet. Extensions → Ledger → Fetch HowLongToBeat times.", 12, dim: true));
+                return;
+            }
+            foreach (var h in wins)
+            {
+                var grid = Row(new GridLength(70), new GridLength(1, GridUnitType.Star), new GridLength(160));
+                Place(grid, Text($"{h.Hltb.MainHours:0.#}h", 13, bold: true), 0);
+                Place(grid, LinkBlock(h), 1);
+                Place(grid, Text((h.Game.Source?.Name ?? "") + (h.Game.IsInstalled ? " · installed" : ""), 12, dim: true), 2);
+                root.Children.Add(grid);
+            }
+        }
+
+        private void BuildOldestUnplayed(List<GameHistory> games)
+        {
+            var list = games.Where(h => !h.IsTool && !h.Played && h.Acquired.HasValue).OrderBy(h => h.Acquired).Take(15).ToList();
+            if (list.Count == 0) return;
+            Section("Oldest unplayed", "The pile of shame, by how long you've owned it.");
+            foreach (var h in list)
+            {
+                var age = (DateTime.Now - h.Acquired.Value).TotalDays / 365.25;
+                var grid = Row(new GridLength(110), new GridLength(1, GridUnitType.Star), new GridLength(110), new GridLength(160));
+                Place(grid, Text(h.Acquired.Value.ToString("yyyy-MM-dd"), 12, dim: true), 0);
+                Place(grid, LinkBlock(h), 1);
+                Place(grid, Text($"{age:0.#} years", 12, dim: true), 2);
+                Place(grid, Text((h.Game.Source?.Name ?? "") + (h.AcquiredVia != null ? " · " + NormalizeMethod(h.AcquiredVia) : ""), 12, dim: true), 3);
+                root.Children.Add(grid);
+            }
+        }
+
+        // ---------- installs ----------
+
+        private void BuildDrives(List<GameHistory> games)
+        {
+            var installed = games.Where(h => h.Game.IsInstalled && h.Drive != null).ToList();
+            Section("Drives", "Installed games per drive: total, and how much of it is stale or never played.");
+            var cutoff = DateTime.Now.AddDays(-StaleDays);
+            var drives = installed.GroupBy(h => h.Drive).OrderBy(g => g.Key).ToList();
+            foreach (var d in drives)
+            {
+                double total = d.Sum(h => (double)(h.Game.InstallSize ?? 0));
+                double stale = d.Where(h => StaleSince(h, cutoff)).Sum(h => (double)(h.Game.InstallSize ?? 0));
+                string free = "";
+                try { var di = new DriveInfo(d.Key); if (di.IsReady) free = $" · {Size(di.AvailableFreeSpace)} free of {Size(di.TotalSize)}"; } catch { }
+                var grid = Row(new GridLength(60), new GridLength(1, GridUnitType.Star), new GridLength(330));
+                Place(grid, Text(d.Key, 16, bold: true), 0);
+                Place(grid, Bar(stale, Math.Max(total, 1), $"{Size(stale)} stale of {Size(total)}"), 1);
+                Place(grid, Text($"{d.Count()} games{free}", 12, dim: true), 2);
+                root.Children.Add(grid);
+            }
+        }
+
+        private void BuildStaleInstalls(List<GameHistory> games)
+        {
+            var cutoff = DateTime.Now.AddDays(-StaleDays);
+            var stale = games.Where(h => h.Game.IsInstalled && StaleSince(h, cutoff))
+                             .OrderByDescending(h => h.Game.InstallSize ?? 0).ToList();
+            var unknown = games.Where(h => h.Game.IsInstalled && LastPlayedUnknown(h)).ToList();
+            Section($"Stale installs · {stale.Count} · {Size(stale.Sum(h => (double)(h.Game.InstallSize ?? 0)))}", $"Installed but not played in {StaleDays} days: uninstall candidates, biggest first.");
+            foreach (var h in stale.Take(25))
+            {
+                var grid = Row(new GridLength(90), new GridLength(1, GridUnitType.Star), new GridLength(60), new GridLength(200));
+                Place(grid, Text(Size(h.Game.InstallSize ?? 0), 12, bold: true), 0);
+                Place(grid, LinkBlock(h, h.IsTool ? "tool" : null), 1);
+                Place(grid, Text(h.Drive ?? "", 12, dim: true), 2);
+                Place(grid, Text(h.LastPlayed.HasValue ? "last played " + h.LastPlayed.Value.ToString("yyyy-MM-dd") : "never played", 12, dim: true), 3);
+                root.Children.Add(grid);
+            }
+            if (unknown.Count > 0)
+            {
+                root.Children.Add(Text($"Not counted: {unknown.Count} installed games with playtime but no last-played date ({string.Join(", ", unknown.Select(h => h.Game.Source?.Name).Distinct())} doesn't report it): " +
+                    string.Join(", ", unknown.Take(6).Select(h => h.Game.Name)) + (unknown.Count > 6 ? "…" : ""), 12, dim: true));
+            }
+        }
+
+        private void BuildInstalledNeverPlayed(List<GameHistory> games)
+        {
+            var list = games.Where(h => h.Game.IsInstalled && !h.Played && !h.IsTool).OrderByDescending(h => h.Game.InstallSize ?? 0).ToList();
+            Section($"Installed, never played · {list.Count} · {Size(list.Sum(h => (double)(h.Game.InstallSize ?? 0)))}", "Either play it or free the space.");
+            foreach (var h in list.Take(15))
+            {
+                var grid = Row(new GridLength(90), new GridLength(1, GridUnitType.Star), new GridLength(80), new GridLength(160));
+                Place(grid, Text(Size(h.Game.InstallSize ?? 0), 12, bold: true), 0);
+                Place(grid, LinkBlock(h), 1);
+                Place(grid, Text(h.Hltb != null ? $"{h.Hltb.Typical:N0}h" : "", 12, dim: true), 2);
+                Place(grid, Text(h.Acquired.HasValue ? "owned since " + h.Acquired.Value.ToString("yyyy") : "", 12, dim: true), 3);
+                root.Children.Add(grid);
+            }
+        }
+
+        // ---------- stats ----------
+
+        /// <summary>
+        /// One category breakdown: per value, games owned, % played (bar) and hours. Games count once
+        /// per value they carry (a game with two genres counts in both).
+        /// </summary>
+        private void BuildBreakdown(string title, List<GameHistory> games, Func<GameHistory, IEnumerable<string>> keys, bool sortByKey = false, int top = 12)
+        {
+            var rows = games.Where(h => !h.IsTool)
+                .SelectMany(h => (keys(h) ?? Enumerable.Empty<string>()).Distinct().Select(k => new { k, h }))
+                .GroupBy(x => x.k)
+                .Select(g => new { Key = g.Key, Owned = g.Count(), Played = g.Count(x => x.h.Played), Hours = g.Sum(x => x.h.Hours) })
+                .ToList();
+            if (rows.Count == 0) return;
+            rows = sortByKey ? rows.OrderBy(r => r.Key).ToList() : rows.OrderByDescending(r => r.Hours).ThenByDescending(r => r.Owned).ToList();
+
+            Section(title, "Owned · share played (bar) · hours");
+            var maxHours = rows.Max(r => r.Hours);
+            foreach (var r in rows.Take(top))
+            {
+                var grid = Row(new GridLength(220), new GridLength(70), new GridLength(1, GridUnitType.Star), new GridLength(16), new GridLength(1, GridUnitType.Star));
+                Place(grid, Text(r.Key, 13), 0);
+                Place(grid, Text(r.Owned.ToString("N0"), 12, dim: true), 1);
+                Place(grid, Bar(r.Played, Math.Max(r.Owned, 1), $"{Pct(r.Played, r.Owned)} played"), 2);
+                Place(grid, Bar(r.Hours, Math.Max(maxHours, 1), $"{r.Hours:N0}h"), 4);
+                root.Children.Add(grid);
+            }
+            if (rows.Count > top) root.Children.Add(Text($"+{rows.Count - top} more", 12, dim: true));
+        }
+
+        private static string NormalizeMethod(string m)
+        {
+            switch ((m ?? "").Trim())
+            {
+                case "Complimentary": case "Free": return "Free";
+                case "Steam Store": case "Purchase": return "Bought";
+                case "Retail": return "Key / retail";
+                default: return m;
+            }
+        }
+
+        // ---------- timeline ----------
+
         private void BuildTimeline(List<GameHistory> games)
         {
             Section("Timeline", "Per year: games you started (first Steam achievement) vs games you got (Steam licenses, Epic orders).");
             var dated = games.Where(h => h.FirstPlayed.HasValue && !h.IsTool).ToList();
-            if (dated.Count == 0)
-            {
-                root.Children.Add(Text("No first-play dates yet. They come from Steam's local achievement cache; launch a game through Steam once and it appears.", 13, dim: true));
-                return;
-            }
-
             var started = dated.GroupBy(h => h.FirstPlayed.Value.Year).ToDictionary(g => g.Key, g => g.ToList());
-            var bought = games.Where(h => h.Acquired.HasValue && !h.IsTool).GroupBy(h => h.Acquired.Value.Year).ToDictionary(g => g.Key, g => g.Count());
-            var years = started.Keys.Union(bought.Keys).OrderByDescending(y => y).ToList();
-            var max = Math.Max(started.Values.Select(v => v.Count).DefaultIfEmpty(0).Max(), bought.Values.DefaultIfEmpty(0).Max());
+            var got = games.Where(h => h.Acquired.HasValue && !h.IsTool).GroupBy(h => h.Acquired.Value.Year).ToDictionary(g => g.Key, g => g.Count());
+            var years = started.Keys.Union(got.Keys).OrderByDescending(y => y).ToList();
+            if (years.Count == 0) return;
+            var max = Math.Max(started.Values.Select(v => v.Count).DefaultIfEmpty(0).Max(), got.Values.DefaultIfEmpty(0).Max());
             foreach (var year in years)
             {
                 var list = started.TryGetValue(year, out var l) ? l : new List<GameHistory>();
-                var got = bought.TryGetValue(year, out var b) ? b : 0;
+                var n = got.TryGetValue(year, out var b) ? b : 0;
                 var top = list.OrderByDescending(h => h.Hours).Take(6).ToList();
                 var grid = Row(new GridLength(60), new GridLength(170), new GridLength(1, GridUnitType.Star));
                 Place(grid, Text(year.ToString(), 16, bold: true), 0);
                 var bars = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
                 bars.Children.Add(Bar(list.Count, max, $"{list.Count} started"));
-                var gotBar = Bar(got, max, $"{got} got");
+                var gotBar = Bar(n, max, $"{n} got");
                 gotBar.Opacity = 0.6;
                 gotBar.Margin = new Thickness(0, 2, 12, 0);
                 bars.Children.Add(gotBar);
@@ -204,44 +514,29 @@ namespace Ledger
             }
         }
 
-        private void BuildUpNext(List<Suggestion> ranked)
+        private void BuildComfortAndForgotten(List<GameHistory> games)
         {
-            if (ranked == null || ranked.Count == 0) return;
-
-            var header = new DockPanel { LastChildFill = false };
-            Section("Up next", "Unplayed games ranked by your taste (hours per genre), review score and whether it's installed.");
-            var pick = new Button { Content = "🎲  Pick for me", Padding = new Thickness(12, 4, 12, 4), Margin = new Thickness(0, 0, 0, 8), HorizontalAlignment = HorizontalAlignment.Left };
-            pick.Click += (s, e) =>
+            var real = games.Where(h => !h.IsTool && h.Hours >= 30).ToList();
+            var comfort = real.Where(h => (h.LastPlayed ?? DateTime.MinValue) > DateTime.Now.AddDays(-90) && h.FirstPlayed.HasValue && h.FirstPlayed < DateTime.Now.AddYears(-1))
+                              .OrderByDescending(h => h.Hours).Take(8).ToList();
+            var forgotten = real.Where(h => h.LastPlayed.HasValue && h.LastPlayed < DateTime.Now.AddYears(-1))
+                                .OrderByDescending(h => h.Hours).Take(8).ToList();
+            if (comfort.Count > 0)
             {
-                var p = UpNext.Pick(ranked);
-                if (p == null) return;
-                api.MainView.SwitchToLibraryView();
-                api.MainView.SelectGame(p.H.Game.Id);
-                api.Dialogs.ShowMessage(
-                    $"{p.H.Game.Name}\n\n" +
-                    (p.MatchedGenres.Count > 0 ? $"You've put a lot of hours into {string.Join(", ", p.MatchedGenres)}.\n" : "") +
-                    (p.Rating.HasValue ? $"Rated {p.Rating}/100.\n" : "") +
-                    (p.H.Game.IsInstalled ? "Already installed." : "Not installed yet.") +
-                    (p.H.Acquired.HasValue ? $"\nYou've owned it since {p.H.Acquired:MMMM yyyy}." : ""),
-                    "Ledger · Pick for me");
-            };
-            root.Children.Add(pick);
-
-            foreach (var sug in ranked.Take(10))
+                Section("Comfort games", "30h+, started over a year ago, still played in the last 90 days.");
+                foreach (var h in comfort) root.Children.Add(GameLine(h, Since(h)));
+            }
+            if (forgotten.Count > 0)
             {
-                var grid = Row(new GridLength(300), new GridLength(1, GridUnitType.Star), new GridLength(70), new GridLength(80));
-                Place(grid, LinkBlock(sug.H), 0);
-                Place(grid, Text(string.Join(" · ", sug.MatchedGenres), 12, dim: true), 1);
-                Place(grid, Text(sug.Rating.HasValue ? $"★ {sug.Rating}" : "", 12, dim: true), 2);
-                Place(grid, Text(sug.H.Game.IsInstalled ? "installed" : "", 12, dim: true), 3);
-                root.Children.Add(grid);
+                Section("Forgotten favourites", "30h+ but untouched for a year. Worth a revisit?");
+                foreach (var h in forgotten) root.Children.Add(GameLine(h, Since(h)));
             }
         }
 
         private void BuildMostPlayed(List<GameHistory> games)
         {
             Section("Most played", "All-time playtime as reported by each store.");
-            var top = games.Where(h => h.Game.Playtime > 0 && !h.IsTool).OrderByDescending(h => h.Game.Playtime).Take(12).ToList();
+            var top = games.Where(h => h.Game.Playtime > 0 && !h.IsTool).OrderByDescending(h => h.Game.Playtime).Take(15).ToList();
             if (top.Count == 0) return;
             var max = top[0].Hours;
             foreach (var h in top)
@@ -254,48 +549,7 @@ namespace Ledger
             }
         }
 
-        private void BuildBacklog(List<GameHistory> games)
-        {
-            var backlog = games.Where(h => h.Game.Playtime == 0 && !h.FirstPlayed.HasValue && !h.IsTool).ToList();
-            Section($"Backlog · {backlog.Count:N0}", "Never played. Oldest acquisitions first, then installed ones.");
-            var list = backlog
-                .OrderBy(h => h.Acquired.HasValue ? 0 : 1).ThenBy(h => h.Acquired)
-                .ThenByDescending(h => h.Game.IsInstalled).ThenBy(h => h.Game.Name)
-                .Take(20).ToList();
-            foreach (var h in list)
-            {
-                var grid = Row(new GridLength(110), new GridLength(1, GridUnitType.Star), new GridLength(160));
-                Place(grid, Text(h.Acquired?.ToString("yyyy-MM-dd") ?? "", 12, dim: true), 0);
-                Place(grid, LinkBlock(h), 1);
-                Place(grid, Text((h.Game.Source?.Name ?? "") + (h.Game.IsInstalled ? " · installed" : ""), 12, dim: true), 2);
-                root.Children.Add(grid);
-            }
-            if (backlog.Count > list.Count)
-            {
-                root.Children.Add(Text($"+{backlog.Count - list.Count:N0} more. Filter the library by Playtime = 0 to see them all.", 12, dim: true));
-            }
-        }
-
-        private void BuildStaleInstalls(List<GameHistory> games)
-        {
-            var cutoff = DateTime.Now.AddDays(-StaleDays);
-            var stale = games.Where(h => h.Game.IsInstalled && (h.LastPlayed ?? DateTime.MinValue) < cutoff)
-                             .OrderByDescending(h => h.Game.InstallSize ?? 0).ToList();
-            var total = stale.Sum(h => (double)(h.Game.InstallSize ?? 0));
-            Section($"Stale installs · {stale.Count} · {Size(total)}", $"Installed but not played in {StaleDays} days: uninstall candidates, biggest first.");
-            foreach (var h in stale.Take(15))
-            {
-                var grid = Row(new GridLength(90), new GridLength(1, GridUnitType.Star), new GridLength(200));
-                Place(grid, Text(Size(h.Game.InstallSize ?? 0), 12, bold: true), 0);
-                Place(grid, LinkBlock(h, h.IsTool ? "tool" : null), 1);
-                Place(grid, Text(h.LastPlayed.HasValue ? "last played " + h.LastPlayed.Value.ToString("yyyy-MM-dd") : "never played", 12, dim: true), 2);
-                root.Children.Add(grid);
-            }
-            if (stale.Any(h => !h.Game.InstallSize.HasValue))
-            {
-                root.Children.Add(Text("Some sizes are unknown. Playnite scans install sizes in the background after imports.", 12, dim: true));
-            }
-        }
+        // ---------- mods + data ----------
 
         private void BuildMods(List<GameMods> mods)
         {
@@ -308,7 +562,7 @@ namespace Ledger
                 return;
             }
             var max = mods.Max(m => m.Mods.Count);
-            foreach (var gm in mods.Take(15))
+            foreach (var gm in mods.Take(30))
             {
                 var grid = Row(new GridLength(280), new GridLength(1, GridUnitType.Star), new GridLength(260));
                 var name = new TextBlock { FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
@@ -334,10 +588,10 @@ namespace Ledger
             root.Children.Add(Text(files.Count == 0
                 ? "No snapshots yet."
                 : $"{files.Count} daily snapshot(s), {System.IO.Path.GetFileNameWithoutExtension(files.First())} → {System.IO.Path.GetFileNameWithoutExtension(files.Last())}. Query them with tools/ledger.py.", 12, dim: true));
-
             var buttons = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
             buttons.Children.Add(ActionButton("Import Steam acquisition dates", () => { plugin.SteamAcquisitions.RunInteractive(); Refresh(); }));
             buttons.Children.Add(ActionButton("Import Epic acquisition dates", () => { plugin.EpicAcquisitions.Run(); Refresh(); }));
+            buttons.Children.Add(ActionButton("Fetch HowLongToBeat times", () => { plugin.FillHltb(); Refresh(); }));
             buttons.Children.Add(ActionButton("Write snapshot now", () => { plugin.Snapshots.TryWriteToday(force: true); Refresh(); }));
             buttons.Children.Add(ActionButton("Open data folder", () => System.Diagnostics.Process.Start(plugin.GetPluginUserDataPath())));
             root.Children.Add(buttons);
@@ -347,9 +601,9 @@ namespace Ledger
 
         private void Section(string title, string subtitle)
         {
-            var sep = new Rectangle { Height = 1, Margin = new Thickness(0, 22, 0, 10) };
+            var sep = new Rectangle { Height = 1, Margin = new Thickness(0, root.Children.Count == 0 ? 0 : 22, 0, 10) };
             sep.SetResourceReference(Shape.FillProperty, "PanelSeparatorBrush");
-            root.Children.Add(sep);
+            if (root.Children.Count > 0) root.Children.Add(sep);
             root.Children.Add(Text(title, 18, bold: true));
             if (subtitle != null)
             {
@@ -361,13 +615,7 @@ namespace Ledger
 
         private FrameworkElement Card(string value, string label)
         {
-            var border = new Border
-            {
-                CornerRadius = new CornerRadius(6),
-                Padding = new Thickness(16, 10, 16, 10),
-                Margin = new Thickness(0, 0, 10, 10),
-                MinWidth = 130
-            };
+            var border = new Border { CornerRadius = new CornerRadius(6), Padding = new Thickness(16, 10, 16, 10), Margin = new Thickness(0, 0, 10, 10), MinWidth = 130 };
             border.SetResourceReference(Border.BackgroundProperty, "ControlBackgroundBrush");
             var sp = new StackPanel();
             var v = Text(value, 24, bold: true);
@@ -383,14 +631,26 @@ namespace Ledger
             var grid = new Grid { Height = 18, Margin = new Thickness(0, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center };
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(value, 0.0001), GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(max - value, 0.0001), GridUnitType.Star) });
+            var track = new Border { CornerRadius = new CornerRadius(3), Opacity = 0.12 };
+            track.SetResourceReference(Border.BackgroundProperty, "GlyphBrush");
+            Grid.SetColumnSpan(track, 2);
+            grid.Children.Add(track);
             var fill = new Border { CornerRadius = new CornerRadius(3), Opacity = 0.55 };
             fill.SetResourceReference(Border.BackgroundProperty, "GlyphBrush");
             grid.Children.Add(fill);
             var text = Text(label, 11);
             text.Margin = new Thickness(6, 0, 0, 0);
-            text.VerticalAlignment = VerticalAlignment.Center;
             Grid.SetColumnSpan(text, 2);
             grid.Children.Add(text);
+            return grid;
+        }
+
+        private FrameworkElement GameLine(GameHistory h, string meta)
+        {
+            var grid = Row(new GridLength(300), new GridLength(80), new GridLength(1, GridUnitType.Star));
+            Place(grid, LinkBlock(h), 0);
+            Place(grid, Text($"{h.Hours:N0}h", 12, bold: true), 1);
+            Place(grid, Text(meta, 12, dim: true), 2);
             return grid;
         }
 
@@ -427,6 +687,7 @@ namespace Ledger
             if (h.FirstPlayed.HasValue) lines.Add($"First played {h.FirstPlayed:yyyy-MM-dd}  (first of {h.Unlocks} achievements)");
             if (h.LastPlayed.HasValue) lines.Add($"Last played  {h.LastPlayed:yyyy-MM-dd}");
             lines.Add($"Playtime     {h.Hours:N1}h");
+            if (h.Hltb != null) lines.Add($"To beat      {h.Hltb.MainHours:0.#}h main · {h.Hltb.ExtraHours:0.#}h extra · {h.Hltb.CompletionistHours:0.#}h 100%");
             if (h.DaysToFirstPlay.HasValue) lines.Add($"Sat in the backlog {h.DaysToFirstPlay} days before first play");
             return string.Join(Environment.NewLine, lines);
         }
@@ -439,7 +700,7 @@ namespace Ledger
 
         private Button ActionButton(string label, Action action)
         {
-            var b = new Button { Content = label, Padding = new Thickness(12, 4, 12, 4), Margin = new Thickness(0, 0, 10, 0) };
+            var b = new Button { Content = label, Padding = new Thickness(12, 4, 12, 4), Margin = new Thickness(0, 0, 10, 8) };
             b.Click += (s, e) => action();
             return b;
         }
@@ -457,29 +718,10 @@ namespace Ledger
             g.Children.Add(e);
         }
 
-        private static TextBlock Text(string s, double size, bool bold = false, bool dim = false)
-        {
-            var tb = new TextBlock
-            {
-                Text = s,
-                FontSize = size,
-                FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal,
-                TextWrapping = TextWrapping.Wrap,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            tb.SetResourceReference(TextBlock.ForegroundProperty, dim ? "TextBrushDarker" : "TextBrush");
-            return tb;
-        }
+        private static TextBlock Text(string s, double size, bool bold = false, bool dim = false) => Ui.Text(s, size, bold, dim);
 
         private static string Pct(int n, int of) => of == 0 ? "–" : (100.0 * n / of).ToString("0", CultureInfo.InvariantCulture) + "%";
 
-        private static string Size(double bytes)
-        {
-            if (bytes <= 0) return "?";
-            string[] u = { "B", "KB", "MB", "GB", "TB" };
-            var i = 0;
-            while (bytes >= 1024 && i < u.Length - 1) { bytes /= 1024; i++; }
-            return bytes.ToString(i >= 3 ? "0.0" : "0", CultureInfo.InvariantCulture) + " " + u[i];
-        }
+        private static string Size(double bytes) => Ui.Size(bytes);
     }
 }

@@ -18,6 +18,11 @@ namespace Ledger
         public DateTime? FirstPlayed { get; set; }
         public int Unlocks { get; set; }
         public DateTime? LastPlayed => Game.LastActivity;
+        public HltbTimes Hltb { get; set; }
+        /// <summary>"D:" etc. from the install directory, or null.</summary>
+        public string Drive => string.IsNullOrEmpty(Game.InstallDirectory) ? null
+            : System.IO.Path.GetPathRoot(Game.InstallDirectory)?.TrimEnd('\\', '/').ToUpperInvariant();
+        public bool Played => Game.Playtime > 0 || FirstPlayed.HasValue;
         /// <summary>Servers, SDKs, mod tools, soundtracks, playtests: things that aren't games to play.</summary>
         public bool IsTool => ToolRx.IsMatch(Game.Name ?? "");
         private static readonly System.Text.RegularExpressions.Regex ToolRx = new System.Text.RegularExpressions.Regex(
@@ -45,10 +50,11 @@ namespace Ledger
             var idx = new HistoryIndex();
             var acq = LoadAcquisitions(ledgerDataDir);
             var unlocks = SteamLocalStats.Load();
+            var hltb = global::Ledger.Hltb.ReadAll(api);
 
             foreach (var g in api.Database.Games)
             {
-                var h = new GameHistory { Game = g };
+                var h = new GameHistory { Game = g, Hltb = hltb.TryGetValue(g.Id, out var t) ? t : null };
                 if (acq.TryGetValue(g.Id, out var a))
                 {
                     h.Acquired = a.Acquired;

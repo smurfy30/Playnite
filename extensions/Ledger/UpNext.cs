@@ -55,8 +55,17 @@ namespace Ledger
                     MatchedGenres = genres.Where(g => genreHours.ContainsKey(g)).OrderByDescending(g => genreHours[g]).Take(3).ToList()
                 });
             }
-            return result.OrderByDescending(s => s.Score).ToList();
+            // One entry per game across editions/stores ("Oblivion GOTY" vs "Oblivion - Game of the Year").
+            return result.OrderByDescending(s => s.Score)
+                         .GroupBy(s => BaseName(s.H.Game.Name)).Select(g => g.OrderByDescending(x => x.H.Game.IsInstalled).First())
+                         .OrderByDescending(s => s.Score).ToList();
         }
+
+        private static readonly System.Text.RegularExpressions.Regex EditionRx = new System.Text.RegularExpressions.Regex(
+            @"\b(game of the year|goty|complete|definitive|deluxe|gold|ultimate|remastered|enhanced|standard)\b.*$|edition",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        internal static string BaseName(string name) => LicenseParsing.Norm(EditionRx.Replace(name ?? "", ""));
 
         /// <summary>Weighted random pick from the top N, so it isn't always the same game.</summary>
         public static Suggestion Pick(List<Suggestion> ranked, int topN = 15, Random rng = null)

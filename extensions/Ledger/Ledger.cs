@@ -39,7 +39,7 @@ namespace Ledger
             api.UriHandler.RegisterSource("ledger", a =>
             {
                 var cmd = a.Arguments.Length > 0 ? a.Arguments[0] : "";
-                if (cmd == "render") RenderToPng();
+                if (cmd == "render") RenderToPng(a.Arguments.Length > 1 ? a.Arguments[1] : "Overview");
                 else if (cmd == "snapshot") Snapshots.TryWriteToday(force: true);
                 else if (cmd == "render-mods")
                 {
@@ -66,39 +66,38 @@ namespace Ledger
                         }
                     }, new GlobalProgressOptions("Ledger: probing…", false) { IsIndeterminate = true });
                 }
+                else if (cmd == "tidy-names") new TidyNames(PlayniteApi, GetPluginUserDataPath()).Apply();
+                else if (cmd == "hltb-fill") FillHltb(silent: true, all: a.Arguments.Length > 1 && a.Arguments[1] == "all");
                 else if (cmd == "import-epic") EpicAcquisitions.Run(silent: true);
                 else if (cmd == "import-steam") SteamAcquisitions.RunInteractive(silent: true);
             });
         }
 
-        internal string RenderToPng(int width = 1400)
+        /// <summary>HowLongToBeat times for the backlog (never-played, visible, not tools) via the HLTB add-on.</summary>
+        internal void FillHltb(bool silent = false, bool all = false)
         {
-            var path = System.IO.Path.Combine(GetPluginUserDataPath(), "render.png");
-            try
+            var idx = HistoryIndex.Build(PlayniteApi, GetPluginUserDataPath());
+            var games = idx.Games.Where(h => !h.Game.Hidden && !h.IsTool && (all || h.Game.Playtime == 0)).Select(h => h.Game).ToList();
+            var tried = 0;
+            PlayniteApi.Dialogs.ActivateGlobalProgress(p =>
             {
-                var view = new LedgerView(this, PlayniteApi, sync: true);
-                var host = new System.Windows.Controls.Border { Child = view, Width = width };
-                host.SetResourceReference(System.Windows.Controls.Border.BackgroundProperty, "WindowBackgourndBrush");
-                // Unconstrained height so the whole page renders, not just one screenful.
-                view.Content = ((System.Windows.Controls.ScrollViewer)view.Content).Content is System.Windows.UIElement inner
-                    ? DetachFromScroll(view) : view.Content;
-                host.Measure(new System.Windows.Size(width, double.PositiveInfinity));
-                host.Arrange(new System.Windows.Rect(host.DesiredSize));
-                host.UpdateLayout();
-                var bmp = new System.Windows.Media.Imaging.RenderTargetBitmap(
-                    (int)host.ActualWidth, (int)host.ActualHeight, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
-                bmp.Render(host);
-                var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
-                enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bmp));
-                using (var fs = System.IO.File.Create(path)) enc.Save(fs);
-                logger.Info($"Ledger render written: {path}");
-                return path;
-            }
-            catch (Exception e)
-            {
-                logger.Error(e, "Ledger render failed");
-                return null;
-            }
+                tried = Hltb.Fill(PlayniteApi, games, (i, n) => { p.Text = $"Ledger: HowLongToBeat {i}/{n}…"; }, p.CancelToken);
+            }, new GlobalProgressOptions("Ledger: HowLongToBeat…", true) { IsIndeterminate = true });
+            var have = Hltb.ReadAll(PlayniteApi).Count;
+            if (!silent) PlayniteApi.Dialogs.ShowMessage($"Asked HowLongToBeat about {tried} backlog games. Times known now: {have}.", "Ledger");
+        }
+
+        /// <summary>Render one Ledger tab (by name or index) to render-&lt;tab&gt;.png in the data dir.</summary>
+        internal string RenderToPng(string tab = "Overview", int width = 1400)
+        {
+            var i = Array.FindIndex(LedgerView.Tabs, t => t.Equals(tab, StringComparison.OrdinalIgnoreCase));
+            if (i < 0 && !int.TryParse(tab, out i)) i = 0;
+            var view = new LedgerView(this, PlayniteApi, sync: true);
+            var page = view.DetachPage(i);
+            var path = System.IO.Path.Combine(GetPluginUserDataPath(), $"render-{LedgerView.Tabs[Math.Min(i, LedgerView.Tabs.Length - 1)].ToLowerInvariant()}.png");
+            RenderElement(page, path, width);
+            logger.Info($"Ledger render written: {path}");
+            return path;
         }
 
         internal void RenderElement(System.Windows.UIElement content, string path, int width)
@@ -119,13 +118,6 @@ namespace Ledger
             catch (Exception e) { logger.Error(e, "Ledger render failed"); }
         }
 
-        private static object DetachFromScroll(LedgerView view)
-        {
-            var sv = (System.Windows.Controls.ScrollViewer)view.Content;
-            var inner = sv.Content;
-            sv.Content = null;
-            return inner;
-        }
 
         public override void OnApplicationStarted(OnApplicationStartedEventArgs args)
         {
@@ -164,6 +156,23 @@ namespace Ledger
                 MenuSection = MenuSection,
                 Description = "Undo acquisition dates (all stores)",
                 Action = _ => SteamAcquisitions.UndoInteractive()
+            };
+            yield return new MainMenuItem
+            {
+                MenuSection = MenuSection,
+                Description = "Fetch HowLongToBeat times for the backlog",
+                Action = _ => FillHltb()
+            };
+            yield return new MainMenuItem
+            {
+                MenuSection = MenuSection,
+                Description = "Tidy game names (fix ™/® mangled to ?)",
+                Action = _ =>
+                {
+                    var done = new TidyNames(PlayniteApi, GetPluginUserDataPath()).Apply();
+                    PlayniteApi.Dialogs.ShowMessage(done.Count == 0 ? "Nothing to tidy." :
+                        string.Join(Environment.NewLine, done.Select(r => $"{r.From}  →  {r.To}")), "Ledger · Tidy names");
+                }
             };
             yield return new MainMenuItem
             {
