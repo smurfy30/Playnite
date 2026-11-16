@@ -34,14 +34,14 @@ Sidebar page **Ledger** + game menu **Ledger → History… / Mods…** + main m
 | feature | source of truth |
 |---|---|
 | Daily snapshots (`snapshots/yyyy-MM-dd.jsonl`) | Playnite DB on startup / after library update |
-| Acquisition dates → Game.Added | steamcommunity licenses page (all pages, logged-in webview) |
+| Acquisition dates → Game.Added | Steam licenses page (all pages) + Epic order history (`ajaxGetOrderHistory`), both via Playnite's logged-in webview; one undo store for both |
 | First played | earliest unlock in `Steam/appcache/stats/UserGameStats_<acct>_<app>.bin`: no key, no network |
 | Timeline (started vs bought per year) | the two above |
 | Up next / Pick for me | taste = playtime share per genre; + rating; + installed |
 | Stale installs | installed, unplayed 180 days, by size |
 | Mods | Workshop `appworkshop_*.acf` (titles via public GetPublishedFileDetails, cached), Vortex staging dirs, r2modman `mods.yml` |
 
-URIs (for scripts): `playnite://ledger/render`, `render-mods/<name>`, `snapshot`, `import-steam`.
+URIs (for scripts): `playnite://ledger/render`, `render-mods/<name>`, `snapshot`, `import-steam`, `import-epic`, `probe/<url>` (dev: dump what the logged-in browser sees).
 
 ## Community add-ons (2026-11-16)
 Metadata: IGDB, Universal Steam, PCGamingWiki, Extra Metadata Loader.
@@ -50,7 +50,7 @@ upstream commit 90467e5 dropped `EnabledInSettings`; don't accept the update), H
 CheckDlc, Year In Review. Library: DuplicateHider (auto, Steam > GOG > Epic > …; 47 hidden).
 Mods: r2modman Launch Options, Nexus Mods checker.
 
-Known add-on gaps (need a login by Shane, all optional):
+Known add-on gaps. **Won't fix** (Shane, 2026-11-16: little Epic/GOG achievement or DLC use, EA unused):
 - SuccessStory Steam unlocks need a Steam login *inside SuccessStory* (it scrapes the web profile);
   Ledger already gets unlock times locally, so this only matters for its achievement UI.
 - SuccessStory / CheckDlc Epic + GOG: "not authenticated". EA linked-account import fails.
@@ -65,11 +65,10 @@ Status: **built**, **try** (worth a spike), **park**, **blocked** (needs a decis
 4. **built** Mods index + per-game window (3,012 mods, 21 games).
 5. **built** Up next + Pick for me.
 6. **built** Metadata fill (covers missing 321 → 16; genres 735 → 44).
-7. **blocked: decide** Phone view. Option A: `ledger.py --json` behind bridge-agent `/playnite/*`
+7. **park** (Shane, 2026-11-16) Phone view. Option A: `ledger.py --json` behind bridge-agent `/playnite/*`
    + a Bridge panel (cheap, fits the setup). Option B: Playnite Web add-on + its server container
    on the Pi. Both touch live infra, so neither was done unattended.
-8. **try P2** Epic/GOG acquisition dates: Epic order history / GOG `getFilteredProducts` via the
-   same logged-in webview trick (needs those logins in Playnite's browser).
+8. **built** Epic acquisition dates (194/213). GOG skipped: Shane doesn't use it much.
 9. **try P2** Weekly digest to phone (estate-mcp): hours, new games, stale installs.
 10. **try P3** Vortex mod sizes (dir walks are slow; do it async + cache).
 11. **park** Rust/Tauri rewrite.
