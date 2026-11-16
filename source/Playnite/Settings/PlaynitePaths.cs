@@ -87,6 +87,20 @@ namespace Playnite
 
             // We need to always initialize some default set for environments like Blend or Rider
             UpdateUserDataDir(IsPortable ? ProgramPath : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Playnite"));
+
+            // shane/main: a userdatadir.txt next to the exe pins the data dir, so dev builds
+            // keep user data out of bin/ even when Playnite relaunches itself without args.
+            // --userdatadir on the command line still wins (ProgramEntry applies it after this).
+            var overrideFile = Path.Combine(ProgramPath, "userdatadir.txt");
+            if (File.Exists(overrideFile))
+            {
+                var dir = File.ReadAllText(overrideFile).Trim().TrimEnd('/', '\\', '"');
+                if (!string.IsNullOrWhiteSpace(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                    UpdateUserDataDir(dir);
+                }
+            }
         }
 
         public static void UpdateUserDataDir(string dir)

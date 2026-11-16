@@ -11,5 +11,7 @@ MSBUILD="/c/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current
 BP=Playnite.BrowserProcess/bin/x86/Debug/net462/win-x86
 for app in Playnite.DesktopApp Playnite.FullscreenApp; do
   cp -f "$BP"/Playnite.BrowserProcess.{exe,exe.config,pdb} "$app/bin/net462/win-x86/"
+  # User data lives outside bin/ (see PlaynitePaths.cs override). Override with PLAYNITE_DATA.
+  printf '%s' "${PLAYNITE_DATA:-E:\\projects\\playnite-data}" > "$app/bin/net462/win-x86/userdatadir.txt"
 done
 echo "Run: source/Playnite.DesktopApp/bin/net462/win-x86/Playnite.DesktopApp.exe"
