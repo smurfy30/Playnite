@@ -1,0 +1,9 @@
+﻿Localization\en_US.xaml
+extension.yaml
+GenericPlugin.csproj
+GenericPlugin.slnx
+icon.png
+Ledger.cs
+LedgerSettings.cs
+LedgerSettingsView.xaml
+LedgerSettingsView.xaml.cs

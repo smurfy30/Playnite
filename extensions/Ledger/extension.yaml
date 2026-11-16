@@ -1,0 +1,7 @@
+Id: Ledger_0ca0d44d-044a-4eb0-b6b8-863e05a6df89
+Name: Ledger
+Author: Shane
+Version: 0.1
+Module: Ledger.dll
+Type: GenericPlugin
+Icon: icon.png

@@ -1,0 +1,10 @@
+<UserControl x:Class="Ledger.LedgerSettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel Margin="20">
+        <CheckBox IsChecked="{Binding Settings.DailySnapshots}"
+                  Content="Write a daily library snapshot (playtime per game) on startup and after library updates"/>
+        <TextBlock Margin="0,15,0,0" TextWrapping="Wrap"
+                   Text="Snapshots are JSONL files in Ledger's data folder (menu → Ledger → Open Ledger data folder). Steam acquisition dates: menu → Ledger → Import Steam acquisition dates."/>
+    </StackPanel>
+</UserControl>
