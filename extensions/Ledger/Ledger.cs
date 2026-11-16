@@ -81,6 +81,7 @@ namespace Ledger
                 }
                 else if (cmd == "tidy-names") new TidyNames(PlayniteApi, GetPluginUserDataPath()).Apply();
                 else if (cmd == "hltb-fill") FillHltb(silent: true, all: a.Arguments.Length > 1 && a.Arguments[1] == "all");
+                else if (cmd == "setup-emulators") EmulatorSetup.Run(PlayniteApi);
                 else if (cmd == "discover-refresh") System.Threading.Tasks.Task.Run(() => RefreshDiscover(force: true));
                 else if (cmd == "daily") System.Threading.Tasks.Task.Run(() => Tracking?.RunDailyIfDue(force: true));
                 else if (cmd == "fetch-spend") Money.FetchSpend(silent: true);

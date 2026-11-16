@@ -1168,6 +1168,13 @@ namespace Playnite.DesktopApp.ViewModels
                     Window.Window.RestoreWindow();
                     break;
 
+                // shane/main: playnite://playnite/updatelibrary[/emulated]
+                // Same as the Update Library button (stores + emulation scanners), or scanners only.
+                case UriCommands.UpdateLibrary:
+                    if (arguments.Length > 1 && arguments[1] == "emulated") _ = UpdateEmulationLibrary();
+                    else _ = UpdateLibrary(AppSettings.DownloadMetadataOnImport, true, true);
+                    break;
+
                 // shane/main: playnite://playnite/downloadmetadata[/all]
                 // Runs the normal metadata downloader with the user's configured sources, filling
                 // only empty fields (SkipExistingValues) on every non-hidden game. "all" overwrites.

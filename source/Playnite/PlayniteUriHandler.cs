@@ -19,6 +19,7 @@ namespace Playnite
         public const string Search = "search";
         public const string Restore = "restore";
         public const string DownloadMetadata = "downloadmetadata"; // shane/main
+        public const string UpdateLibrary = "updatelibrary"; // shane/main
     }
 
     public class PlayniteUriHandler : IUriHandlerAPI
