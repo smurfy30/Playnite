@@ -156,6 +156,7 @@ namespace Ledger
                 Try("mods", ModDiff);
                 File.WriteAllText(today, Serialization.ToJson(day, true));
                 Try("sale alerts", SaleAlerts);
+                Try("discover", () => plugin.RefreshDiscover());
                 logger.Info($"Ledger daily collect written: {today}");
             }
             catch (Exception e) { logger.Error(e, "Ledger daily collect failed"); }

@@ -20,7 +20,7 @@ namespace Ledger
     /// </summary>
     internal partial class LedgerView : UserControl
     {
-        public static readonly string[] Tabs = { "Overview", "Explorer", "Backlog", "Installs", "Stats", "Money", "Wishlist", "Timeline", "Mods" };
+        public static readonly string[] Tabs = { "Overview", "Discover", "Explorer", "Backlog", "Installs", "Stats", "Money", "Wishlist", "Timeline", "Mods" };
 
         private readonly Ledger plugin;
         private readonly IPlayniteAPI api;
@@ -121,6 +121,7 @@ namespace Ledger
             builders = new Action[]
             {
                 () => { BuildCards(g, d); if (period.IsAll) BuildOverviewCharts(g); BuildInsights(g, d); BuildOnThisDay(g); BuildUpNextTiles(d.UpNext.Where(x => g.Contains(x.H)).ToList(), 8); BuildRecent(); },
+                () => { BuildDiscover(d); },
                 () => { BuildExplorer(g, d); },
                 () => { BuildShelves(g); BuildQuickWinTiles(g); BuildUpNextTiles(d.UpNext.Where(x => g.Contains(x.H)).ToList(), 16); BuildOldestUnplayed(g); },
                 () => { BuildDrives(g); BuildDiskTrend(); BuildStaleInstalls(g); BuildInstalledNeverPlayed(g); },

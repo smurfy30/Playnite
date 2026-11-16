@@ -187,7 +187,8 @@ namespace Ledger
                 var art = new Border { Width = width, Height = width * 1.5, CornerRadius = new CornerRadius(6), ClipToBounds = true };
                 art.SetResourceReference(Border.BackgroundProperty, "ControlBackgroundBrush");
                 var img = Load(t.CoverPath, (int)width * 2);
-                if (img != null) art.Child = new Image { Source = img, Stretch = Stretch.UniformToFill };
+                // Landscape art (giveaway banners, Steam headers) would be cropped to a sliver; fit it instead.
+                if (img != null) art.Child = new Image { Source = img, Stretch = img.PixelWidth > img.PixelHeight ? Stretch.Uniform : Stretch.UniformToFill, VerticalAlignment = VerticalAlignment.Center };
                 else
                 {
                     var ph = T(t.Title, 13, bold: true); ph.Margin = new Thickness(8); ph.VerticalAlignment = VerticalAlignment.Center; ph.TextAlignment = TextAlignment.Center;

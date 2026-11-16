@@ -62,7 +62,7 @@ namespace Ledger
         }
 
         private static readonly System.Text.RegularExpressions.Regex EditionRx = new System.Text.RegularExpressions.Regex(
-            @"\b(game of the year|goty|complete|definitive|deluxe|gold|ultimate|remastered|enhanced|standard)\b.*$|edition",
+            @"\b(game of the year|goty|complete|definitive|deluxe|gold|ultimate|remastered|enhanced|standard|special|anniversary|legendary)\b.*$|edition",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
         internal static string BaseName(string name) => LicenseParsing.Norm(EditionRx.Replace(name ?? "", ""));

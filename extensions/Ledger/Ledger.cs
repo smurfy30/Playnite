@@ -27,6 +27,7 @@ namespace Ledger
         internal SteamAcquisitions SteamAcquisitions { get; }
         internal EpicAcquisitions EpicAcquisitions { get; }
         internal Money Money { get; }
+        internal Discover Discover { get; }
 
         public override Guid Id { get; } = Guid.Parse("0ca0d44d-044a-4eb0-b6b8-863e05a6df89");
 
@@ -37,6 +38,7 @@ namespace Ledger
             SteamAcquisitions = new SteamAcquisitions(api, GetPluginUserDataPath());
             EpicAcquisitions = new EpicAcquisitions(api, GetPluginUserDataPath());
             Money = new Money(api, GetPluginUserDataPath());
+            Discover = new Discover(api, GetPluginUserDataPath());
             Properties = new GenericPluginProperties { HasSettings = true };
 
             // playnite://ledger/<command>: lets scripts drive Ledger without clicking.
@@ -79,6 +81,7 @@ namespace Ledger
                 }
                 else if (cmd == "tidy-names") new TidyNames(PlayniteApi, GetPluginUserDataPath()).Apply();
                 else if (cmd == "hltb-fill") FillHltb(silent: true, all: a.Arguments.Length > 1 && a.Arguments[1] == "all");
+                else if (cmd == "discover-refresh") System.Threading.Tasks.Task.Run(() => RefreshDiscover(force: true));
                 else if (cmd == "daily") System.Threading.Tasks.Task.Run(() => Tracking?.RunDailyIfDue(force: true));
                 else if (cmd == "fetch-spend") Money.FetchSpend(silent: true);
                 else if (cmd == "fetch-prices") FetchPrices();
@@ -114,6 +117,30 @@ namespace Ledger
         }
 
         private string renderStore;
+
+        /// <summary>Free games (always) + recommendations (weekly unless forced) + covers. Background-safe.</summary>
+        internal void RefreshDiscover(bool force = false)
+        {
+            try
+            {
+                var fresh = Discover.FetchFree();
+                foreach (var f in fresh)
+                {
+                    var url = f.Url;
+                    PlayniteApi.Notifications.Add(new NotificationMessage("ledger-free-" + f.Store + f.Title,
+                        $"Free on {f.Store}: {f.Title}" + (f.Ends.HasValue ? $" (until {f.Ends:ddd d MMM})" : "") + ". Click to claim.",
+                        NotificationType.Info, () => System.Diagnostics.Process.Start(url)));
+                }
+                var recsPath = System.IO.Path.Combine(GetPluginUserDataPath(), "state", "recommendations.json");
+                if (force || !System.IO.File.Exists(recsPath) || System.IO.File.GetLastWriteTime(recsPath) < DateTime.Now.AddDays(-7))
+                {
+                    Discover.BuildRecs(HistoryIndex.Build(PlayniteApi, GetPluginUserDataPath()).Games);
+                }
+                Discover.WarmCovers();
+                logger.Info("Ledger: discover refreshed");
+            }
+            catch (Exception e) { logger.Error(e, "Ledger: discover refresh failed"); }
+        }
 
         internal string RenderToPng(string tab = "Overview", int width = 1400)
         {

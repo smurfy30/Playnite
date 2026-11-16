@@ -49,6 +49,7 @@ shelf) · Timeline (play calendar heatmap + (started vs got, comfort/forgotten, 
 | Saved views | Views dropdown: 6 built-ins + "Save view" (filter + tab) in settings |
 | Explorer tab | sortable DataGrid of every game (hours, HLTB, done %, dates, how got, paid, £/h, GB, year, rating, genres) |
 | Detail drawer | click any game anywhere: cover, Play/Install/Show in library, key numbers, HLTB progress bars, dated timeline (acquired, first/last played, status, sessions, purchases), mods, notes |
+| Discover tab | Free now/next: Epic freeGamesPromotions (official) + GamerPower (Steam, GOG; third-party giveaways labelled), "already in your library" check, daily + notification for new freebies. Picks: SteamSpy tag profile of your top-25 Steam games (hours-weighted, generic tags dropped) → tag lists → shortlist 150 verified against their own top tags → cosine × reviews³ × popularity; "Because you like <tag>", "More like <game>"; owned anywhere excluded. Weekly, cached (state/steamspy, covers). Plus own unplayed by genre |
 | UI perf | tabs build lazily on first view; data loads off the UI thread; any render error is shown in-page (SafeShow) not thrown |
 | Money: spend | Steam purchase history (logged-in webview, "load more" clicked via JS), attributed per game (DLC to base game, bundles split by list price, collections across franchise, refunds subtracted) + Epic order totals |
 | Money: value | Steam store `appdetails?filters=price_overview` (public, batched 50, cached 7 days, region in settings) |
