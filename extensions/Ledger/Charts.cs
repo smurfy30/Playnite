@@ -55,6 +55,7 @@ namespace Ledger
                 slices.Add(new Slice { Label = "Other", Value = rest.Sum(x => x.Value), Detail = string.Join(", ", rest.Select(x => x.Label)) });
             }
             var total = slices.Sum(s => s.Value);
+            if (slices.Count < 2) return new StackPanel(); // one slice = nothing to compare (e.g. filtered to one store)
             var panel = new StackPanel { Margin = new Thickness(0, 0, 30, 10) };
             panel.Children.Add(T(title, 15, bold: true));
             var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };

@@ -18,6 +18,10 @@ namespace Ledger
         private string period = "All time";
         private string store = "All stores";
         private bool askForVerdict = true;
+        private string genre = "All genres";
+        private string installState = "Any";
+        private string playState = "Any";
+        private string search = "";
 
         /// <summary>Write snapshots/yyyy-MM-dd.jsonl on startup and after each library update.</summary>
         public bool DailySnapshots { get => dailySnapshots; set => SetValue(ref dailySnapshots, value); }
@@ -34,6 +38,10 @@ namespace Ledger
         public string Store { get => store; set => SetValue(ref store, value); }
         /// <summary>Ask for a 1–10 rating + one-line note when a game is marked Beaten/Completed/Abandoned.</summary>
         public bool AskForVerdict { get => askForVerdict; set => SetValue(ref askForVerdict, value); }
+        public string Genre { get => genre; set => SetValue(ref genre, value); }
+        public string InstallState { get => installState; set => SetValue(ref installState, value); }
+        public string PlayState { get => playState; set => SetValue(ref playState, value); }
+        public string Search { get => search; set => SetValue(ref search, value); }
     }
 
     public class LedgerSettingsViewModel : ObservableObject, ISettings

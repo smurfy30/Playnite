@@ -45,7 +45,12 @@ namespace Ledger
             api.UriHandler.RegisterSource("ledger", a =>
             {
                 var cmd = a.Arguments.Length > 0 ? a.Arguments[0] : "";
-                if (cmd == "render") RenderToPng(a.Arguments.Length > 1 ? a.Arguments[1] : "Overview");
+                if (cmd == "render")
+                {
+                    renderStore = a.Arguments.Length > 2 ? Uri.UnescapeDataString(a.Arguments[2]) : null; // render/full/<store>
+                    RenderToPng(a.Arguments.Length > 1 ? a.Arguments[1] : "Overview");
+                    renderStore = null;
+                }
                 else if (cmd == "snapshot") Snapshots.TryWriteToday(force: true);
                 else if (cmd == "render-mods")
                 {
@@ -108,12 +113,15 @@ namespace Ledger
             return n;
         }
 
+        private string renderStore;
+
         internal string RenderToPng(string tab = "Overview", int width = 1400)
         {
             if (tab.Equals("full", StringComparison.OrdinalIgnoreCase))
             {
                 // Whole control as the user sees it (header + tab strip), fixed window-ish size.
                 var full = new LedgerView(this, PlayniteApi, sync: true) { Height = 1000 };
+                if (renderStore != null) full.ApplyStoreFilter(renderStore);
                 var fp = System.IO.Path.Combine(GetPluginUserDataPath(), "render-full.png");
                 RenderElement(full, fp, width);
                 return fp;

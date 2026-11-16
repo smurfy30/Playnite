@@ -35,6 +35,10 @@ namespace Ledger
             this.api = api;
             storeFilter = plugin.Settings.Store ?? "All stores";
             period = new Period { Name = plugin.Settings.Period ?? "All time" };
+            genreFilter = plugin.Settings.Genre ?? "All genres";
+            installFilter = plugin.Settings.InstallState ?? "Any";
+            playFilter = plugin.Settings.PlayState ?? "Any";
+            searchFilter = plugin.Settings.Search ?? "";
             Content = shell;
             tabs.Margin = new Thickness(20, 10, 20, 0);
             tabs.SelectionChanged += (s, e) => { if (e.Source == tabs) selectedTab = tabs.SelectedIndex; };
@@ -80,7 +84,7 @@ namespace Ledger
         {
             if (sync)
             {
-                Show(Load());
+                SafeShow(Load());
                 return;
             }
             shell.Children.Clear();
@@ -88,7 +92,7 @@ namespace Ledger
             loading.Children.Add(Text("Ledger", 28, bold: true));
             loading.Children.Add(Text("Reading your library…", 13, dim: true));
             shell.Children.Add(loading);
-            System.Threading.Tasks.Task.Run(() => Load()).ContinueWith(t => Dispatcher.Invoke(() => Show(t.Result)));
+            System.Threading.Tasks.Task.Run(() => Load()).ContinueWith(t => Dispatcher.Invoke(() => SafeShow(t.Result)));
         }
 
         private readonly List<StackPanel> pages = new List<StackPanel>();
@@ -141,6 +145,7 @@ namespace Ledger
             DockPanel.SetDock(top, Dock.Top);
             var dock = new DockPanel();
             dock.Children.Add(top);
+            (tabs.Parent as Panel)?.Children.Remove(tabs); // reused across re-filters
             dock.Children.Add(tabs);
             shell.Children.Add(dock);
         }
@@ -247,7 +252,8 @@ namespace Ledger
                 // lifetime hours ÷ years since the first known play as a rough rate.
                 var firstEver = real.Where(h => h.FirstPlayed.HasValue).Select(h => h.FirstPlayed.Value).DefaultIfEmpty(DateTime.Now.AddYears(-1)).Min();
                 var yearsActive = Math.Max(1, (DateTime.Now - firstEver).TotalDays / 365.25);
-                var perYear = real.Sum(h => h.Hours) / yearsActive;
+                // Pace is a property of you, not of the filter: use the whole (unfiltered) library.
+                var perYear = (last?.Visible ?? real).Where(h => !h.IsTool).Sum(h => h.Hours) / yearsActive;
                 var est = timed.Sum(h => h.Hltb.Typical) / timed.Count * backlog.Count;
                 lines.Add($"Finishing the main story of everything unplayed would take about {est:N0} hours (HowLongToBeat, with the {backlog.Count - timed.Count} untimed games estimated at the average). At your usual {perYear:N0} hours a year, that's {est / Math.Max(1, perYear):N1} years.");
             }
