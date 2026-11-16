@@ -29,6 +29,55 @@ namespace Ledger
             Snapshots = new Snapshots(api, GetPluginUserDataPath());
             SteamAcquisitions = new SteamAcquisitions(api, GetPluginUserDataPath());
             Properties = new GenericPluginProperties { HasSettings = true };
+
+            // playnite://ledger/<command>: lets scripts drive Ledger without clicking.
+            //   render   - draw the Ledger page to <data>/render.png (visual check without a screen)
+            //   snapshot - write today's snapshot now
+            api.UriHandler.RegisterSource("ledger", a =>
+            {
+                var cmd = a.Arguments.Length > 0 ? a.Arguments[0] : "";
+                if (cmd == "render") RenderToPng();
+                else if (cmd == "snapshot") Snapshots.TryWriteToday(force: true);
+                else if (cmd == "import-steam") SteamAcquisitions.RunInteractive(silent: true);
+            });
+        }
+
+        internal string RenderToPng(int width = 1400)
+        {
+            var path = System.IO.Path.Combine(GetPluginUserDataPath(), "render.png");
+            try
+            {
+                var view = new LedgerView(this, PlayniteApi);
+                var host = new System.Windows.Controls.Border { Child = view, Width = width };
+                host.SetResourceReference(System.Windows.Controls.Border.BackgroundProperty, "WindowBackgourndBrush");
+                // Unconstrained height so the whole page renders, not just one screenful.
+                view.Content = ((System.Windows.Controls.ScrollViewer)view.Content).Content is System.Windows.UIElement inner
+                    ? DetachFromScroll(view) : view.Content;
+                host.Measure(new System.Windows.Size(width, double.PositiveInfinity));
+                host.Arrange(new System.Windows.Rect(host.DesiredSize));
+                host.UpdateLayout();
+                var bmp = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                    (int)host.ActualWidth, (int)host.ActualHeight, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                bmp.Render(host);
+                var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bmp));
+                using (var fs = System.IO.File.Create(path)) enc.Save(fs);
+                logger.Info($"Ledger render written: {path}");
+                return path;
+            }
+            catch (Exception e)
+            {
+                logger.Error(e, "Ledger render failed");
+                return null;
+            }
+        }
+
+        private static object DetachFromScroll(LedgerView view)
+        {
+            var sv = (System.Windows.Controls.ScrollViewer)view.Content;
+            var inner = sv.Content;
+            sv.Content = null;
+            return inner;
         }
 
         public override void OnApplicationStarted(OnApplicationStartedEventArgs args)
@@ -78,6 +127,33 @@ namespace Ledger
                 MenuSection = MenuSection,
                 Description = "Open Ledger data folder",
                 Action = _ => System.Diagnostics.Process.Start(GetPluginUserDataPath())
+            };
+        }
+
+        public override IEnumerable<SidebarItem> GetSidebarItems()
+        {
+            yield return new SidebarItem
+            {
+                Title = "Ledger",
+                Type = SiderbarItemType.View,
+                Icon = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(GetType().Assembly.Location), "icon.png"),
+                Opened = () => new LedgerView(this, PlayniteApi)
+            };
+        }
+
+        public override IEnumerable<GameMenuItem> GetGameMenuItems(GetGameMenuItemsArgs args)
+        {
+            if (args.Games.Count != 1) yield break;
+            var game = args.Games[0];
+            yield return new GameMenuItem
+            {
+                MenuSection = "Ledger",
+                Description = "History…",
+                Action = _ =>
+                {
+                    var h = HistoryIndex.Build(PlayniteApi, GetPluginUserDataPath()).For(game.Id);
+                    PlayniteApi.Dialogs.ShowMessage(h == null ? "No data." : LedgerView.Tooltip(h), "Ledger");
+                }
             };
         }
 

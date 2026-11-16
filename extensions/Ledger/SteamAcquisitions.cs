@@ -43,17 +43,42 @@ namespace Ledger
             this.dataDir = dataDir;
         }
 
+        /// <summary>
+        /// All license pages concatenated. Steam paginates (100 per page) with a
+        /// "license_paginator_next" link carrying a continuation token; follow it to the end.
+        /// </summary>
         private string FetchLicensesHtml()
         {
-            string html = null;
-            api.Dialogs.ActivateGlobalProgress(_ =>
+            var all = new System.Text.StringBuilder();
+            api.Dialogs.ActivateGlobalProgress(p =>
             {
                 using (var view = api.WebViews.CreateOffscreenView())
                 {
-                    view.NavigateAndWait(LicensesUrl);
-                    html = view.GetPageSource();
+                    var url = LicensesUrl;
+                    for (var page = 1; page <= 50 && url != null; page++)
+                    {
+                        p.Text = $"Ledger: reading Steam licenses, page {page}…";
+                        view.NavigateAndWait(url);
+                        var html = WaitForStableSource(view);
+                        all.AppendLine(html);
+                        url = LicenseParsing.NextPageUrl(html, LicensesUrl);
+                    }
                 }
             }, new GlobalProgressOptions("Ledger: reading Steam licenses…", false) { IsIndeterminate = true });
+            return all.ToString();
+        }
+
+        private static string WaitForStableSource(IWebView view)
+        {
+            // NavigateAndWait can return before the table is complete; take the source once it stops growing.
+            var html = view.GetPageSource() ?? "";
+            for (var i = 0; i < 10; i++)
+            {
+                System.Threading.Thread.Sleep(700);
+                var again = view.GetPageSource() ?? "";
+                if (again.Length <= html.Length) break;
+                html = again;
+            }
             return html;
         }
 
@@ -73,11 +98,16 @@ namespace Ledger
             }
         }
 
-        public void RunInteractive()
+        public void RunInteractive(bool silent = false)
         {
             try
             {
                 var html = FetchLicensesHtml();
+                if (!LicenseParsing.LooksLikeLicensesPage(html) && silent)
+                {
+                    logger.Warn("Ledger: Steam licenses page not available (not logged in?)");
+                    return;
+                }
                 if (!LicenseParsing.LooksLikeLicensesPage(html))
                 {
                     var r = api.Dialogs.ShowMessage(
@@ -93,8 +123,9 @@ namespace Ledger
                     }
                 }
 
-                var licenses = LicenseParsing.Parse(html);
                 Directory.CreateDirectory(dataDir);
+                File.WriteAllText(Path.Combine(dataDir, "steam-licenses.html"), html);
+                var licenses = LicenseParsing.Parse(html);
                 File.WriteAllText(RawPath, Serialization.ToJson(licenses, true));
 
                 var steamGames = api.Database.Games.Where(g => g.PluginId == SteamPluginId).ToList();

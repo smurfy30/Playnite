@@ -26,6 +26,17 @@ namespace Ledger
         // Steam renders dates per account language; cover the English variants.
         private static readonly string[] DateFormats = { "d MMM, yyyy", "MMM d, yyyy", "d MMM yyyy", "MMM d yyyy", "yyyy-MM-dd" };
 
+        private static readonly Regex NextRx = new Regex(@"class=""license_paginator_next""\s+href=""(?<href>[^""]+)""", RegexOptions.IgnoreCase);
+
+        /// <summary>Absolute URL of the next licenses page, or null on the last page.</summary>
+        public static string NextPageUrl(string html, string baseUrl)
+        {
+            var m = NextRx.Match(html ?? "");
+            if (!m.Success) return null;
+            var href = WebUtility.HtmlDecode(m.Groups["href"].Value);
+            return new Uri(new Uri(baseUrl), href).ToString();
+        }
+
         public static bool LooksLikeLicensesPage(string html) =>
             html != null && html.IndexOf("license_date_col", StringComparison.OrdinalIgnoreCase) >= 0;
 
@@ -55,45 +66,79 @@ namespace Ledger
             new string((s ?? "").ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
 
         // Suffixes Steam appends to package names that the game name doesn't have.
-        private static readonly string[] PackageNoise = { "limitedfreepromotionalpackage", "freeweekend", "earlyaccess", "commercial", "retail", "steamstore", "complimentary", "freeonsteam", "demo", "beta", "playtest" };
+        private static readonly string[] PackageNoise = { "limitedfreepromotionalpackage", "freeweekend", "earlyaccess", "commercial", "retail", "steamstore", "complimentary", "freeonsteam", "beta", "playtest", "forstoresignup", "playtestforstoresignup" };
+        // Words that mark a multi-game package; the rest of the name is the franchise prefix.
+        private static readonly Regex CollectionRx = new Regex(@"\b(the )?(collection|bundle|trilogy|anthology|complete|ultimate|saga|pack)\b.*$", RegexOptions.IgnoreCase);
+
+        /// <summary>"fallout" vs "fallout76": a digit right after the shared prefix means a different game.</summary>
+        private static bool NextIsDigit(string longer, int at) => at < longer.Length && char.IsDigit(longer[at]);
+
+        private static string StripNoise(string n)
+        {
+            foreach (var noise in PackageNoise)
+            {
+                if (n.EndsWith(noise) && n.Length > noise.Length) n = n.Substring(0, n.Length - noise.Length);
+            }
+            return n;
+        }
 
         /// <summary>
-        /// Earliest license per game name. Exact normalized match first; else the license whose
-        /// normalized name starts with the game's (editions, bundles: "X Deluxe Edition"), taking
-        /// the longest game name so "Portal 2" doesn't get claimed by "Portal".
+        /// Earliest license per game name, in passes from most to least certain. Each game takes
+        /// the first pass that finds anything:
+        ///  1. exact normalized name (raw or with Steam's package noise stripped)
+        ///  2. license starts with game   ("X Deluxe Edition" → X), longest games first so
+        ///     "Portal 2" claims its packages before "Portal" can
+        ///  3. game starts with license   ("Fallout 3 - GOTY Edition" ← "Fallout 3 - GOTY")
+        ///  4. collection franchise       ("BioShock The Collection" → BioShock 2, Infinite…)
+        /// Names shorter than 6 chars only ever match exactly.
         /// </summary>
         public static Dictionary<string, SteamLicense> Match(IEnumerable<string> gameNames, IList<SteamLicense> licenses)
         {
             var byNorm = new Dictionary<string, SteamLicense>();
+            void Add(string key, SteamLicense l)
+            {
+                if (key.Length == 0) return;
+                if (!byNorm.TryGetValue(key, out var cur) || l.Date < cur.Date) byNorm[key] = l;
+            }
+            var franchises = new Dictionary<string, SteamLicense>();
             foreach (var l in licenses)
             {
-                var n = Norm(l.Name);
-                foreach (var noise in PackageNoise)
+                var raw = Norm(l.Name);
+                Add(raw, l);
+                Add(StripNoise(raw), l);
+                var m = CollectionRx.Match(l.Name);
+                if (m.Success && m.Index > 0)
                 {
-                    if (n.EndsWith(noise) && n.Length > noise.Length) n = n.Substring(0, n.Length - noise.Length);
+                    var f = Norm(l.Name.Substring(0, m.Index));
+                    if (f.Length >= 6 && (!franchises.TryGetValue(f, out var cur) || l.Date < cur.Date)) franchises[f] = l;
                 }
-                if (!byNorm.TryGetValue(n, out var cur) || l.Date < cur.Date) byNorm[n] = l;
             }
 
             var games = gameNames.Distinct().Select(g => new { name = g, norm = Norm(g) }).Where(g => g.norm.Length >= 3)
                                  .OrderByDescending(g => g.norm.Length).ToList();
             var result = new Dictionary<string, SteamLicense>();
-            var claimedPrefix = new HashSet<string>();
+            var claimed = new HashSet<string>();
             foreach (var g in games)
             {
-                if (byNorm.TryGetValue(g.norm, out var exact))
+                if (byNorm.TryGetValue(g.norm, out var exact)) { result[g.name] = exact; claimed.Add(g.norm); }
+            }
+
+            foreach (var g in games.Where(x => !result.ContainsKey(x.name) && x.norm.Length >= 6))
+            {
+                // 2. license starts with game
+                var c2 = byNorm.Where(kv => kv.Key.StartsWith(g.norm) && !claimed.Contains(kv.Key) && !NextIsDigit(kv.Key, g.norm.Length)).ToList();
+                if (c2.Count > 0)
                 {
-                    result[g.name] = exact;
+                    result[g.name] = c2.OrderBy(kv => kv.Value.Date).First().Value;
+                    foreach (var c in c2) claimed.Add(c.Key);
                     continue;
                 }
-
-                // Prefix match only for names long enough to be distinctive.
-                if (g.norm.Length < 6) continue;
-                var candidates = byNorm.Where(kv => kv.Key.StartsWith(g.norm) && !claimedPrefix.Contains(kv.Key)).ToList();
-                if (candidates.Count == 0) continue;
-                var best = candidates.OrderBy(kv => kv.Value.Date).First();
-                result[g.name] = best.Value;
-                foreach (var c in candidates) claimedPrefix.Add(c.Key);
+                // 3. game starts with license (longest license wins: most specific)
+                var c3 = byNorm.Where(kv => kv.Key.Length >= 8 && g.norm.StartsWith(kv.Key) && !NextIsDigit(g.norm, kv.Key.Length)).OrderByDescending(kv => kv.Key.Length).FirstOrDefault();
+                if (c3.Value != null) { result[g.name] = c3.Value; continue; }
+                // 4. collection franchise
+                var c4 = franchises.Where(kv => g.norm.StartsWith(kv.Key)).OrderByDescending(kv => kv.Key.Length).FirstOrDefault();
+                if (c4.Value != null) result[g.name] = c4.Value;
             }
             return result;
         }
