@@ -35,7 +35,7 @@ namespace Ledger
         {
             var g = h.Game;
             if (!IncludeFamilySharing && g.Source?.Name == "Steam Family Sharing") return false;
-            if (Stores.Count > 0 && !Stores.Contains(g.Source?.Name ?? "(none)")) return false;
+            if (Stores.Count > 0 && !Stores.Contains(h.Origin)) return false;
             if (Genres.Count > 0 && !(g.Genres?.Any(x => Genres.Contains(x.Name)) ?? false)) return false;
             if (Installed != null && (Installed == "Installed") != g.IsInstalled) return false;
             if (Played != null && (Played == "Played") != h.Played) return false;

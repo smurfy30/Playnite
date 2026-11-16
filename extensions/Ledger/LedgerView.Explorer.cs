@@ -45,7 +45,7 @@ namespace Ledger
                 {
                     Id = h.Game.Id,
                     Name = h.Game.Name,
-                    Store = h.Game.Source?.Name,
+                    Store = h.Origin,
                     Hours = Math.Round(h.Hours, 1),
                     LastPlayed = h.LastPlayed,
                     FirstPlayed = h.FirstPlayed,

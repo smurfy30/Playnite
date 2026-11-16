@@ -185,9 +185,9 @@ namespace Ledger
                 v => Edit(f => f.Paid = v == "Any" ? (bool?)null : v == "Paid for")));
 
             // Column 2: stores
-            var c2 = Col(1, "Stores");
+            var c2 = Col(1, "Stores & platforms");
             foreach (var s in d.Visible.Where(h => filter.IncludeFamilySharing || h.Game.Source?.Name != "Steam Family Sharing")
-                                        .GroupBy(h => h.Game.Source?.Name ?? "(none)").OrderByDescending(g => g.Count()))
+                                        .GroupBy(h => h.Origin).OrderByDescending(g => g.Count()))
             {
                 var name = s.Key;
                 c2.Children.Add(Check($"{name}  ({s.Count()})", filter.Stores.Contains(name), on => Edit(f => { f.Stores.Remove(name); if (on) f.Stores.Add(name); })));

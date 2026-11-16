@@ -68,5 +68,12 @@ $prev = Call $SN "ReconstructLatest" @($tmp, "2026-11-17")
 Check "exclude day = previous state" ($prev[$b] -like '*"playtimeSec":20*')
 Remove-Item -Recurse -Force $tmp
 
+# --- catalogue names → titles ---
+$TN = $asm.GetType("Ledger.TidyNames")
+Check "article moved"     ((Call $TN "CatalogueToTitle" @("Simpsons, The - Hit & Run")) -eq "The Simpsons: Hit & Run")
+Check "plain article"     ((Call $TN "CatalogueToTitle" @("Simpsons Skateboarding, The")) -eq "The Simpsons Skateboarding")
+Check "subtitle colon"    ((Call $TN "CatalogueToTitle" @("Sly 2 - Band of Thieves")) -eq "Sly 2: Band of Thieves")
+Check "untouched"         ((Call $TN "CatalogueToTitle" @("Shrek 2")) -eq "Shrek 2")
+
 Write-Host "`n$fail failure(s)"
 exit $fail

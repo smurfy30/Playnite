@@ -182,7 +182,7 @@ namespace Ledger
             Func<GameHistory, double> hrs = h => HoursOf(h, d);
             BuildStatsCharts(g, d);
             BuildBreakdown("Genres", g, h => h.Game.Genres?.Select(x => x.Name), hours: hrs);
-            BuildBreakdown("Stores", g, h => new[] { h.Game.Source?.Name ?? "(none)" }, hours: hrs);
+            BuildBreakdown("Stores", g, h => new[] { h.Origin }, hours: hrs);
             BuildBreakdown("Release decade", g, h => h.Game.ReleaseYear.HasValue ? new[] { (h.Game.ReleaseYear.Value / 10 * 10) + "s" } : null, sortByKey: true, hours: hrs);
             BuildBreakdown("Developers", g, h => h.Game.Developers?.Select(x => x.Name), hours: hrs, top: 10);
             if (g.Select(h => h.Game.CompletionStatus?.Name).Distinct().Count() > 2)

@@ -19,6 +19,9 @@ namespace Ledger
         public int Unlocks { get; set; }
         public DateTime? LastPlayed => Game.LastActivity;
         public HltbTimes Hltb { get; set; }
+        /// <summary>Where the game comes from: the store, or for emulated games (no store) the platform.</summary>
+        public string Origin => Game.Source?.Name ?? Game.Platforms?.FirstOrDefault()?.Name ?? "(none)";
+        public bool IsEmulated => Game.PluginId == Guid.Empty && Game.GameActions?.Any(a => a.Type == Playnite.SDK.Models.GameActionType.Emulator) == true;
         /// <summary>"D:" etc. from the install directory, or null.</summary>
         public string Drive => string.IsNullOrEmpty(Game.InstallDirectory) ? null
             : System.IO.Path.GetPathRoot(Game.InstallDirectory)?.TrimEnd('\\', '/').ToUpperInvariant();

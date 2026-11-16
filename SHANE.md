@@ -70,6 +70,16 @@ shelf) · Timeline (play calendar heatmap + (started vs got, comfort/forgotten, 
 
 URIs (for scripts): `playnite://ledger/render/<tab|full>`, `hltb-fill[/all]`, `tidy-names`, `render-mods/<name>`, `snapshot`, `import-steam`, `import-epic`, `probe/<url>` (dev: dump what the logged-in browser sees).
 
+## Emulation (2026-11-16)
+- Emulators: portable in `E:\Emulators\<Name>` via `tools/install-emulators.py` (DuckStation, PPSSPP, Dolphin, Cemu,
+  melonDS, mGBA, Azahar, Eden, RetroArch + chdman). PCSX2 in Program Files; RPCS3 in `E:\Emulators` root.
+- Games: `E:\emulator_games\<system>` via `tools/organise-roms.py` (PS2 → CHD, PS1/PS2 by SYSTEM.CNF, PS3 extracted;
+  originals moved to `_archives`, never deleted; resumable). Run it detached; a session sign-out kills child processes.
+- Playnite: `playnite://ledger/setup-emulators` registers emulators (built-in definitions) + one scanner per system
+  folder (in global update, so dropping a file in a folder + Update Library imports it).
+  `playnite://playnite/updatelibrary/emulated` scans now. Tidy names turns Redump names into titles for matching.
+- Ledger: emulated games show by platform (Origin = store or platform) in filters/stats/Explorer.
+
 ## Community add-ons (2026-11-16)
 Metadata: IGDB, Universal Steam, PCGamingWiki, Extra Metadata Loader.
 Tracking: GameActivity, SuccessStory **pinned to 3.7** (3.7.1 has Steam always-disabled bug:

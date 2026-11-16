@@ -62,12 +62,22 @@ namespace Ledger
                     if (store.Any(s => Regex.IsMatch(s, pattern))) fixedName = name.Replace("?", "");
                 }
                 fixedName = Regex.Replace(Symbols.Replace(fixedName, ""), @"\s{2,}", " ").Trim();
+                // Emulated games (no store plugin) carry Redump/No-Intro catalogue names, which metadata
+                // sources don't match: "Simpsons, The - Hit & Run" → "The Simpsons: Hit & Run".
+                if (g.PluginId == Guid.Empty) fixedName = CatalogueToTitle(fixedName);
                 if (fixedName != name && fixedName.Length > 0)
                 {
                     result.Add(new Rename { GameId = g.Id, From = name, To = fixedName, At = DateTime.Now });
                 }
             }
             return result;
+        }
+
+        internal static string CatalogueToTitle(string name)
+        {
+            var m = Regex.Match(name, @"^(?<main>.+?), (?<art>The|A|An)(?<rest>( - .*)?)$");
+            if (m.Success) name = $"{m.Groups["art"].Value} {m.Groups["main"].Value}{m.Groups["rest"].Value}";
+            return Regex.Replace(name, @" - ", ": ");
         }
 
         public List<Rename> Apply()

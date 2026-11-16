@@ -83,7 +83,7 @@ namespace Ledger
                 Label = b.Item1, Value = real.Count(b.Item2), OnClick = () => Edit(b.Item3)
             }), Pct(real.Count(h => h.Played), real.Count), "played", sort: false));
 
-            row.Children.Add(Charts.Donut("Where it's from", real.GroupBy(h => h.Game.Source?.Name ?? "(none)").Select(g => new Slice
+            row.Children.Add(Charts.Donut("Where it's from", real.GroupBy(h => h.Origin).Select(g => new Slice
             {
                 Label = g.Key, Value = g.Count(), Detail = $"{g.Sum(h => h.Hours):N0}h played", OnClick = () => Edit(f => f.Stores = new List<string> { g.Key })
             }), real.Count.ToString("N0"), "games"));
