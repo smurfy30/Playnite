@@ -66,19 +66,19 @@ namespace Ledger
 
         public GameHistory For(Guid gameId) => Games.FirstOrDefault(h => h.Game.Id == gameId);
 
-        private static Dictionary<Guid, SteamAcquisitions.Record> LoadAcquisitions(string dir)
+        private static Dictionary<Guid, AcquisitionStore.Record> LoadAcquisitions(string dir)
         {
             var path = Path.Combine(dir, "acquisitions.json");
-            if (!File.Exists(path)) return new Dictionary<Guid, SteamAcquisitions.Record>();
+            if (!File.Exists(path)) return new Dictionary<Guid, AcquisitionStore.Record>();
             try
             {
-                return (Serialization.FromJsonFile<List<SteamAcquisitions.Record>>(path) ?? new List<SteamAcquisitions.Record>())
+                return (Serialization.FromJsonFile<List<AcquisitionStore.Record>>(path) ?? new List<AcquisitionStore.Record>())
                     .GroupBy(r => r.GameId).ToDictionary(g => g.Key, g => g.First());
             }
             catch (Exception e)
             {
                 LogManager.GetLogger().Warn($"Ledger: bad acquisitions.json: {e.Message}");
-                return new Dictionary<Guid, SteamAcquisitions.Record>();
+                return new Dictionary<Guid, AcquisitionStore.Record>();
             }
         }
     }

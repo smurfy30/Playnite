@@ -164,7 +164,7 @@ namespace Ledger
 
         private void BuildTimeline(List<GameHistory> games)
         {
-            Section("Timeline", "Per year: games you started (first Steam achievement) vs games you bought (Steam licenses).");
+            Section("Timeline", "Per year: games you started (first Steam achievement) vs games you got (Steam licenses, Epic orders).");
             var dated = games.Where(h => h.FirstPlayed.HasValue && !h.IsTool).ToList();
             if (dated.Count == 0)
             {
@@ -185,7 +185,7 @@ namespace Ledger
                 Place(grid, Text(year.ToString(), 16, bold: true), 0);
                 var bars = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
                 bars.Children.Add(Bar(list.Count, max, $"{list.Count} started"));
-                var gotBar = Bar(got, max, $"{got} bought");
+                var gotBar = Bar(got, max, $"{got} got");
                 gotBar.Opacity = 0.6;
                 gotBar.Margin = new Thickness(0, 2, 12, 0);
                 bars.Children.Add(gotBar);
@@ -337,6 +337,7 @@ namespace Ledger
 
             var buttons = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
             buttons.Children.Add(ActionButton("Import Steam acquisition dates", () => { plugin.SteamAcquisitions.RunInteractive(); Refresh(); }));
+            buttons.Children.Add(ActionButton("Import Epic acquisition dates", () => { plugin.EpicAcquisitions.Run(); Refresh(); }));
             buttons.Children.Add(ActionButton("Write snapshot now", () => { plugin.Snapshots.TryWriteToday(force: true); Refresh(); }));
             buttons.Children.Add(ActionButton("Open data folder", () => System.Diagnostics.Process.Start(plugin.GetPluginUserDataPath())));
             root.Children.Add(buttons);

@@ -24,23 +24,15 @@ namespace Ledger
 
         private readonly IPlayniteAPI api;
         private readonly string dataDir;
-        private string RecordPath => Path.Combine(dataDir, "acquisitions.json");
         private string RawPath => Path.Combine(dataDir, "steam-licenses.json");
 
-        public class Record
-        {
-            public Guid GameId { get; set; }
-            public string GameName { get; set; }
-            public string License { get; set; }
-            public string Method { get; set; }
-            public DateTime Acquired { get; set; }
-            public DateTime? PreviousAdded { get; set; }
-        }
+        private readonly AcquisitionStore store;
 
         public SteamAcquisitions(IPlayniteAPI api, string dataDir)
         {
             this.api = api;
             this.dataDir = dataDir;
+            store = new AcquisitionStore(api, dataDir);
         }
 
         /// <summary>
@@ -131,32 +123,18 @@ namespace Ledger
                 var steamGames = api.Database.Games.Where(g => g.PluginId == SteamPluginId).ToList();
                 var matches = LicenseParsing.Match(steamGames.Select(g => g.Name), licenses);
 
-                var existing = LoadRecords().ToDictionary(r => r.GameId);
-                var changed = 0;
-                using (api.Database.BufferedUpdate())
-                {
-                    foreach (var g in steamGames)
-                    {
-                        if (!matches.TryGetValue(g.Name, out var lic)) continue;
-                        // Keep the *original* pre-Ledger Added across repeated runs.
-                        var prev = existing.TryGetValue(g.Id, out var old) ? old.PreviousAdded : g.Added;
-                        existing[g.Id] = new Record { GameId = g.Id, GameName = g.Name, License = lic.Name, Method = lic.Method, Acquired = lic.Date, PreviousAdded = prev };
-                        if (g.Added?.Date != lic.Date.Date)
-                        {
-                            g.Added = lic.Date;
-                            api.Database.Games.Update(g);
-                            changed++;
-                        }
-                    }
-                }
-                SaveRecords(existing.Values);
-
+                var changed = store.Apply("Steam", steamGames, matches);
                 var unmatched = steamGames.Count - steamGames.Count(g => matches.ContainsKey(g.Name));
-                api.Dialogs.ShowMessage(
-                    $"Steam licenses read: {licenses.Count}\nSteam games matched: {matches.Count} of {steamGames.Count}\n" +
-                    $"Added dates changed: {changed}\nUnmatched: {unmatched} (kept as-is)\n\n" +
-                    "Sort or group by \"Date added\" to use it. Ledger → Undo restores the old dates.",
-                    "Ledger");
+                var summary = $"Steam licenses read: {licenses.Count}" + Environment.NewLine +
+                              $"Steam games matched: {matches.Count} of {steamGames.Count}" + Environment.NewLine +
+                              $"Added dates changed: {changed}" + Environment.NewLine +
+                              $"Unmatched: {unmatched} (kept as-is)";
+                logger.Info("Ledger import (Steam): " + summary.Replace(Environment.NewLine, "; "));
+                if (!silent)
+                {
+                    api.Dialogs.ShowMessage(summary + Environment.NewLine + Environment.NewLine +
+                        "Sort or group by \"Date added\" to use it. Ledger → Undo restores the old dates.", "Ledger");
+                }
             }
             catch (Exception e)
             {
@@ -167,33 +145,8 @@ namespace Ledger
 
         public void UndoInteractive()
         {
-            var records = LoadRecords();
-            if (records.Count == 0)
-            {
-                api.Dialogs.ShowMessage("Nothing to undo.", "Ledger");
-                return;
-            }
-
-            var restored = 0;
-            using (api.Database.BufferedUpdate())
-            {
-                foreach (var r in records)
-                {
-                    var g = api.Database.Games.Get(r.GameId);
-                    if (g == null) continue;
-                    g.Added = r.PreviousAdded;
-                    api.Database.Games.Update(g);
-                    restored++;
-                }
-            }
-            File.Move(RecordPath, RecordPath + "." + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".undone");
-            api.Dialogs.ShowMessage($"Restored previous Added date on {restored} games.", "Ledger");
+            var n = store.Undo();
+            api.Dialogs.ShowMessage(n == 0 ? "Nothing to undo." : $"Restored previous Added date on {n} games (all stores).", "Ledger");
         }
-
-        private List<Record> LoadRecords() =>
-            File.Exists(RecordPath) ? Serialization.FromJsonFile<List<Record>>(RecordPath) ?? new List<Record>() : new List<Record>();
-
-        private void SaveRecords(IEnumerable<Record> records) =>
-            File.WriteAllText(RecordPath, Serialization.ToJson(records.OrderBy(r => r.Acquired).ToList(), true));
     }
 }

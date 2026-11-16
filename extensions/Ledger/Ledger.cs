@@ -21,6 +21,7 @@ namespace Ledger
         private LedgerSettingsViewModel settings { get; set; }
         internal Snapshots Snapshots { get; }
         internal SteamAcquisitions SteamAcquisitions { get; }
+        internal EpicAcquisitions EpicAcquisitions { get; }
 
         public override Guid Id { get; } = Guid.Parse("0ca0d44d-044a-4eb0-b6b8-863e05a6df89");
 
@@ -29,6 +30,7 @@ namespace Ledger
             settings = new LedgerSettingsViewModel(this);
             Snapshots = new Snapshots(api, GetPluginUserDataPath());
             SteamAcquisitions = new SteamAcquisitions(api, GetPluginUserDataPath());
+            EpicAcquisitions = new EpicAcquisitions(api, GetPluginUserDataPath());
             Properties = new GenericPluginProperties { HasSettings = true };
 
             // playnite://ledger/<command>: lets scripts drive Ledger without clicking.
@@ -49,6 +51,22 @@ namespace Ledger
                         RenderElement(ModsView.BuildList(gm, out _), System.IO.Path.Combine(GetPluginUserDataPath(), "render-mods.png"), 900);
                     }
                 }
+                else if (cmd == "probe" && a.Arguments.Length > 1)
+                {
+                    // Dev aid: save what Playnite's logged-in browser sees at a URL (page text) to probe.txt.
+                    var url = Uri.UnescapeDataString(a.Arguments[1]);
+                    PlayniteApi.Dialogs.ActivateGlobalProgress(_ =>
+                    {
+                        using (var v = PlayniteApi.WebViews.CreateOffscreenView())
+                        {
+                            v.NavigateAndWait(url);
+                            System.Threading.Thread.Sleep(1500);
+                            System.IO.File.WriteAllText(System.IO.Path.Combine(GetPluginUserDataPath(), "probe.txt"),
+                                v.GetCurrentAddress() + Environment.NewLine + Environment.NewLine + v.GetPageText());
+                        }
+                    }, new GlobalProgressOptions("Ledger: probing…", false) { IsIndeterminate = true });
+                }
+                else if (cmd == "import-epic") EpicAcquisitions.Run(silent: true);
                 else if (cmd == "import-steam") SteamAcquisitions.RunInteractive(silent: true);
             });
         }
@@ -138,7 +156,13 @@ namespace Ledger
             yield return new MainMenuItem
             {
                 MenuSection = MenuSection,
-                Description = "Undo Steam acquisition dates",
+                Description = "Import Epic acquisition dates",
+                Action = _ => EpicAcquisitions.Run()
+            };
+            yield return new MainMenuItem
+            {
+                MenuSection = MenuSection,
+                Description = "Undo acquisition dates (all stores)",
                 Action = _ => SteamAcquisitions.UndoInteractive()
             };
             yield return new MainMenuItem
