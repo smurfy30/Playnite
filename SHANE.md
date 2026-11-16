@@ -19,6 +19,7 @@ Upstream: JosefNemec/Playnite (`upstream` remote, mirrored on `master`). Ours: `
 | `tools/steam_local_stats.py` | read Steam's local achievement cache (first/last unlock per app) |
 
 User data: `E:/projects/playnite-data` (never in git; it holds store tokens).
+Startup: Playnite starts closed to tray at login (`StartOnBoot` → Startup\Playnite.lnk) so the tracker always runs.
 Backups: `E:/projects/playnite-data-backups/` (manual tarballs + Playnite auto-backup in `auto/`).
 
 ## Rules
@@ -31,7 +32,8 @@ Backups: `E:/projects/playnite-data-backups/` (manual tarballs + Playnite auto-b
 ## Ledger (extensions/Ledger)
 Sidebar page **Ledger**, tabs: Overview (cards, insights, on this day, up next) · Backlog (shelves, quick wins,
 up next + Pick for me, oldest unplayed) · Installs (drives, stale, installed-never-played) · Stats (genre, store,
-decade, how-you-got-it breakdowns) · Timeline (started vs got, comfort/forgotten, most played) · Mods. Also + game menu **Ledger → History… / Mods…** + main menu **Extensions → Ledger**.
+decade, developer, how-you-got-it; period-aware) · Money (spend, in-game, saved, library value, £/h, money on the
+shelf) · Timeline (play calendar heatmap + (started vs got, comfort/forgotten, most played) · Mods. Also + game menu **Ledger → History… / Mods…** + main menu **Extensions → Ledger**.
 
 | feature | source of truth |
 |---|---|
@@ -43,6 +45,10 @@ decade, how-you-got-it breakdowns) · Timeline (started vs got, comfort/forgotte
 | Stale installs | installed, unplayed 180 days, by size |
 | HowLongToBeat times | the HLTB add-on: Ledger reads its cache, fills gaps by calling its `AddData(Game)` (non-interactive; `Get()` opens a picker). HLTB set to UseMatchValue 90 |
 | Tidy names | ™/® mangled to "?" (Epic) fixed only when a store record confirms it; log in `renames.json` |
+| Filters | header bar: Period (all/30d/12m/this year/past years) · Store · Family Sharing; remembered in settings |
+| Money: spend | Steam purchase history (logged-in webview, "load more" clicked via JS), attributed per game (DLC to base game, bundles split by list price, collections across franchise, refunds subtracted) + Epic order totals |
+| Money: value | Steam store `appdetails?filters=price_overview` (public, batched 50, cached 7 days, region in settings) |
+| Activity | background process watcher (60s, exe path under a game's install dir → session; skips Playnite-running games) + Playnite OnGameStopped + GameActivity + snapshot deltas; day hours = max(sessions, delta) |
 | Mods | Workshop `appworkshop_*.acf` (titles via public GetPublishedFileDetails, cached), Vortex staging dirs, r2modman `mods.yml` |
 
 URIs (for scripts): `playnite://ledger/render/<tab|full>`, `hltb-fill[/all]`, `tidy-names`, `render-mods/<name>`, `snapshot`, `import-steam`, `import-epic`, `probe/<url>` (dev: dump what the logged-in browser sees).

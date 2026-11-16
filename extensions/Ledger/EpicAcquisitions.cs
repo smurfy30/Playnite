@@ -62,7 +62,9 @@ namespace Ledger
                                 {
                                     Name = it.description.Trim(),
                                     Date = DateTimeOffset.FromUnixTimeMilliseconds(o.createdAtMillis).LocalDateTime,
-                                    Method = (o.total?.amount ?? 0) == 0 ? "Free" : "Purchase"
+                                    Method = (o.total?.amount ?? 0) == 0 ? "Free" : "Purchase",
+                                    // Order total split evenly across its items (Epic orders are almost always one item).
+                                    Amount = (o.total?.amount ?? 0) / 100m / Math.Max(1, o.items.Count)
                                 });
                             }
                         }
@@ -73,6 +75,13 @@ namespace Ledger
             }, new GlobalProgressOptions("Ledger: reading Epic orders…", false) { IsIndeterminate = true });
             loggedIn = ok;
             return result;
+        }
+
+        public static List<SteamLicense> LoadOrders(string dir)
+        {
+            var p = Path.Combine(dir, "epic-orders.json");
+            try { return File.Exists(p) ? Serialization.FromJsonFile<List<SteamLicense>>(p) ?? new List<SteamLicense>() : new List<SteamLicense>(); }
+            catch { return new List<SteamLicense>(); }
         }
 
         public void Run(bool silent = false)

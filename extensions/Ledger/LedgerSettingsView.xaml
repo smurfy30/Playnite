@@ -2,9 +2,25 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <StackPanel Margin="20">
-        <CheckBox IsChecked="{Binding Settings.DailySnapshots}"
-                  Content="Write a daily library snapshot (playtime per game) on startup and after library updates"/>
-        <TextBlock Margin="0,15,0,0" TextWrapping="Wrap"
-                   Text="Snapshots are JSONL files in Ledger's data folder (menu → Ledger → Open Ledger data folder). Steam acquisition dates: menu → Ledger → Import Steam acquisition dates."/>
+        <TextBlock Text="Tracking" FontWeight="SemiBold" Margin="0,0,0,6"/>
+        <CheckBox IsChecked="{Binding Settings.DailySnapshots}" Margin="0,0,0,6"
+                  Content="Daily library snapshot (playtime per game) on startup and after library updates"/>
+        <CheckBox IsChecked="{Binding Settings.TrackActivity}" Margin="0,0,0,6"
+                  Content="Track play sessions in the background, including games launched outside Playnite (checks running processes once a minute)"/>
+
+        <TextBlock Text="Library" FontWeight="SemiBold" Margin="0,16,0,6"/>
+        <CheckBox IsChecked="{Binding Settings.IncludeFamilySharing}" Margin="0,0,0,6"
+                  Content="Count Steam Family Sharing games as part of my library"/>
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+            <TextBlock Text="Stale install after (days):" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <TextBox Text="{Binding Settings.StaleDays}" Width="60"/>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+            <TextBlock Text="Steam price region (country code):" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <TextBox Text="{Binding Settings.PriceRegion}" Width="60"/>
+        </StackPanel>
+
+        <TextBlock Margin="0,16,0,0" TextWrapping="Wrap" Opacity="0.7"
+                   Text="Ledger keeps everything in its data folder (Ledger page → Mods tab → Open data folder). Nothing is uploaded anywhere."/>
     </StackPanel>
 </UserControl>

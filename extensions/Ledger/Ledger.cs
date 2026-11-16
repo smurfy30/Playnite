@@ -19,9 +19,13 @@ namespace Ledger
         private const string MenuSection = "@Ledger";
 
         private LedgerSettingsViewModel settings { get; set; }
+        internal LedgerSettings Settings => settings.Settings;
+        internal void SaveSettings() => SavePluginSettings(settings.Settings);
+        private ActivityTracker tracker;
         internal Snapshots Snapshots { get; }
         internal SteamAcquisitions SteamAcquisitions { get; }
         internal EpicAcquisitions EpicAcquisitions { get; }
+        internal Money Money { get; }
 
         public override Guid Id { get; } = Guid.Parse("0ca0d44d-044a-4eb0-b6b8-863e05a6df89");
 
@@ -31,6 +35,7 @@ namespace Ledger
             Snapshots = new Snapshots(api, GetPluginUserDataPath());
             SteamAcquisitions = new SteamAcquisitions(api, GetPluginUserDataPath());
             EpicAcquisitions = new EpicAcquisitions(api, GetPluginUserDataPath());
+            Money = new Money(api, GetPluginUserDataPath());
             Properties = new GenericPluginProperties { HasSettings = true };
 
             // playnite://ledger/<command>: lets scripts drive Ledger without clicking.
@@ -68,6 +73,8 @@ namespace Ledger
                 }
                 else if (cmd == "tidy-names") new TidyNames(PlayniteApi, GetPluginUserDataPath()).Apply();
                 else if (cmd == "hltb-fill") FillHltb(silent: true, all: a.Arguments.Length > 1 && a.Arguments[1] == "all");
+                else if (cmd == "fetch-spend") Money.FetchSpend(silent: true);
+                else if (cmd == "fetch-prices") FetchPrices();
                 else if (cmd == "import-epic") EpicAcquisitions.Run(silent: true);
                 else if (cmd == "import-steam") SteamAcquisitions.RunInteractive(silent: true);
             });
@@ -88,6 +95,17 @@ namespace Ledger
         }
 
         /// <summary>Render one Ledger tab (by name or index) to render-&lt;tab&gt;.png in the data dir.</summary>
+        /// <summary>List prices for every Steam game in the library (owned + family), cached a week.</summary>
+        internal int FetchPrices()
+        {
+            var ids = PlayniteApi.Database.Games.Where(g => g.PluginId == HistoryIndex.SteamPluginId && g.GameId != null).Select(g => g.GameId).ToList();
+            var n = 0;
+            PlayniteApi.Dialogs.ActivateGlobalProgress(_ => n = Money.FetchPrices(ids, settings.Settings.PriceRegion ?? "gb"),
+                new GlobalProgressOptions("Ledger: Steam store prices…", false) { IsIndeterminate = true });
+            logger.Info($"Ledger: fetched {n} Steam prices");
+            return n;
+        }
+
         internal string RenderToPng(string tab = "Overview", int width = 1400)
         {
             if (tab.Equals("full", StringComparison.OrdinalIgnoreCase))
@@ -129,9 +147,27 @@ namespace Ledger
 
         public override void OnApplicationStarted(OnApplicationStartedEventArgs args)
         {
+            if (settings.Settings.TrackActivity)
+            {
+                tracker = new ActivityTracker(PlayniteApi, GetPluginUserDataPath());
+                tracker.Start();
+            }
             if (settings.Settings.DailySnapshots)
             {
                 Snapshots.TryWriteToday(force: false);
+            }
+        }
+
+        public override void OnApplicationStopped(OnApplicationStoppedEventArgs args) => tracker?.Dispose();
+
+        public override void OnGameStopped(OnGameStoppedEventArgs args)
+        {
+            // Exact session for Playnite-launched games (the watcher skips games Playnite says are running).
+            if (args.ElapsedSeconds >= 60)
+            {
+                var end = DateTime.Now;
+                (tracker ?? new ActivityTracker(PlayniteApi, GetPluginUserDataPath()))
+                    .Record(args.Game.Id, end.AddSeconds(-(double)args.ElapsedSeconds), end, "playnite");
             }
         }
 

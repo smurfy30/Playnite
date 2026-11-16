@@ -18,22 +18,23 @@ namespace Ledger
     /// Built in code (not XAML) so each query sits next to the rows it produces. Uses Playnite theme
     /// resources (TextBrush, GlyphBrush, ...) so it follows the active theme.
     /// </summary>
-    internal class LedgerView : UserControl
+    internal partial class LedgerView : UserControl
     {
-        public static readonly string[] Tabs = { "Overview", "Backlog", "Installs", "Stats", "Timeline", "Mods" };
+        public static readonly string[] Tabs = { "Overview", "Backlog", "Installs", "Stats", "Money", "Timeline", "Mods" };
 
         private readonly Ledger plugin;
         private readonly IPlayniteAPI api;
         private readonly Grid shell = new Grid();
         private readonly TabControl tabs = new TabControl();
         private StackPanel root; // the panel the Build* helpers currently write into
-        private const int StaleDays = 180;
         private int selectedTab;
 
         public LedgerView(Ledger plugin, IPlayniteAPI api, bool sync = false)
         {
             this.plugin = plugin;
             this.api = api;
+            storeFilter = plugin.Settings.Store ?? "All stores";
+            period = new Period { Name = plugin.Settings.Period ?? "All time" };
             Content = shell;
             tabs.Margin = new Thickness(20, 10, 20, 0);
             tabs.SelectionChanged += (s, e) => { if (e.Source == tabs) selectedTab = tabs.SelectedIndex; };
@@ -48,6 +49,8 @@ namespace Ledger
             public List<GameHistory> Visible;
             public List<GameMods> Mods;
             public List<Suggestion> UpNext;
+            public ActivityIndex Activity;
+            public MoneyIndex Money;
             public string Error;
         }
 
@@ -60,6 +63,8 @@ namespace Ledger
                 d.Visible = d.Index.Games.Where(h => !h.Game.Hidden).ToList();
                 d.UpNext = global::Ledger.UpNext.Rank(d.Index.Games);
                 d.Mods = ModIndex.Build(api, plugin.GetPluginUserDataPath());
+                d.Activity = ActivityIndex.Build(api, plugin.GetPluginUserDataPath());
+                d.Money = MoneyIndex.Build(plugin.Money, d.Index.Games, plugin.GetPluginUserDataPath());
             }
             catch (Exception e)
             {
@@ -88,26 +93,27 @@ namespace Ledger
 
         private void Show(Data d)
         {
+            last = d;
             shell.Children.Clear();
             pages.Clear();
-            if (d.Error != null || d.Index == null)
+            if (d == null || d.Error != null || d.Index == null)
             {
-                shell.Children.Add(Text("Ledger couldn't build its index: " + d.Error, 14));
+                shell.Children.Add(Text("Ledger couldn't build its index: " + d?.Error, 14));
                 return;
             }
+            // Resolve the remembered period name against the real options (dates depend on today).
+            var years = d.Index.Games.SelectMany(h => new[] { h.Acquired?.Year, h.FirstPlayed?.Year, h.LastPlayed?.Year }).Where(y => y.HasValue).Select(y => y.Value).Distinct();
+            period = Period.Options(years).FirstOrDefault(p => p.Name == period.Name) ?? new Period { Name = "All time" };
 
-            var g = d.Visible;
+            var g = Scope(d.Visible);
             var builders = new Action[]
             {
-                () => { BuildCards(g); BuildInsights(g); BuildOnThisDay(g); BuildUpNext(d.UpNext, 5, withPick: true); },
-                () => { BuildShelves(g); BuildQuickWins(g); BuildUpNext(d.UpNext, 15, withPick: true); BuildOldestUnplayed(g); },
+                () => { BuildCards(g, d); BuildInsights(g, d); BuildOnThisDay(g); BuildUpNext(d.UpNext.Where(x => g.Contains(x.H)).ToList(), 5, withPick: true); },
+                () => { BuildShelves(g); BuildQuickWins(g); BuildUpNext(d.UpNext.Where(x => g.Contains(x.H)).ToList(), 15, withPick: true); BuildOldestUnplayed(g); },
                 () => { BuildDrives(g); BuildStaleInstalls(g); BuildInstalledNeverPlayed(g); },
-                () => { BuildBreakdown("Genres", g, h => h.Game.Genres?.Select(x => x.Name)); BuildBreakdown("Stores", g, h => new[] { h.Game.Source?.Name ?? "(none)" });
-                        BuildBreakdown("Release decade", g, h => h.Game.ReleaseYear.HasValue ? new[] { (h.Game.ReleaseYear.Value / 10 * 10) + "s" } : null, sortByKey: true);
-                        if (g.Select(h => h.Game.CompletionStatus?.Name).Distinct().Count() > 2)
-                            BuildBreakdown("Completion status", g, h => new[] { h.Game.CompletionStatus?.Name ?? "(none)" });
-                        BuildBreakdown("How you got it", g, h => h.AcquiredVia == null ? null : new[] { NormalizeMethod(h.AcquiredVia) }); },
-                () => { BuildTimeline(g); BuildComfortAndForgotten(g); BuildMostPlayed(g); },
+                () => { BuildStats(g, d); },
+                () => { BuildMoney(d, g); },
+                () => { BuildHeatmap(d, g); BuildTimeline(g); BuildComfortAndForgotten(g); BuildMostPlayed(g); },
                 () => { BuildMods(d.Mods); BuildFooter(); },
             };
 
@@ -126,12 +132,35 @@ namespace Ledger
             }
             tabs.SelectedIndex = Math.Min(selectedTab, Tabs.Length - 1);
 
-            var header = BuildHeader(g);
-            DockPanel.SetDock(header, Dock.Top);
+            var top = new StackPanel();
+            top.Children.Add(BuildHeader(g));
+            top.Children.Add(BuildFilterBar(d));
+            DockPanel.SetDock(top, Dock.Top);
             var dock = new DockPanel();
-            dock.Children.Add(header);
+            dock.Children.Add(top);
             dock.Children.Add(tabs);
             shell.Children.Add(dock);
+        }
+
+        private void BuildStats(List<GameHistory> all, Data d)
+        {
+            // In a period: rows over games played in it, hours = hours in it. All time: everything.
+            var g = period.IsAll ? all : all.Where(h => PlayedIn(h, d)).ToList();
+            var caveat = TrackingCaveat(d);
+            if (!period.IsAll)
+            {
+                Section($"{period.Name}", $"{g.Count} games played in this period.");
+                if (caveat != null) root.Children.Add(Text(caveat, 12, dim: true));
+            }
+            Func<GameHistory, double> hrs = h => HoursOf(h, d);
+            BuildBreakdown("Genres", g, h => h.Game.Genres?.Select(x => x.Name), hours: hrs);
+            BuildBreakdown("Stores", g, h => new[] { h.Game.Source?.Name ?? "(none)" }, hours: hrs);
+            BuildBreakdown("Release decade", g, h => h.Game.ReleaseYear.HasValue ? new[] { (h.Game.ReleaseYear.Value / 10 * 10) + "s" } : null, sortByKey: true, hours: hrs);
+            BuildBreakdown("Developers", g, h => h.Game.Developers?.Select(x => x.Name), hours: hrs, top: 10);
+            if (g.Select(h => h.Game.CompletionStatus?.Name).Distinct().Count() > 2)
+                BuildBreakdown("Completion status", g, h => new[] { h.Game.CompletionStatus?.Name ?? "(none)" }, hours: hrs);
+            var gotIn = period.IsAll ? all : all.Where(h => period.Contains(h.Acquired)).ToList();
+            BuildBreakdown(period.IsAll ? "How you got it" : $"Got in {period.Name}", gotIn, h => h.AcquiredVia == null ? null : new[] { NormalizeMethod(h.AcquiredVia) }, hours: hrs);
         }
 
         /// <summary>For headless renders: the built content of one tab (call after a sync Refresh).</summary>
@@ -168,8 +197,9 @@ namespace Ledger
             return row;
         }
 
-        private void BuildCards(List<GameHistory> games)
+        private void BuildCards(List<GameHistory> games, Data d)
         {
+            if (!period.IsAll) { BuildPeriodCards(games, d); return; }
             var real = games.Where(h => !h.IsTool).ToList();
             var played = real.Count(h => h.Played);
             var backlog = real.Where(h => !h.Played).ToList();
@@ -187,8 +217,9 @@ namespace Ledger
         }
 
         /// <summary>Auto-written facts, Steam-Replay style. Each line is computed, never stored.</summary>
-        private void BuildInsights(List<GameHistory> games)
+        private void BuildInsights(List<GameHistory> games, Data d)
         {
+            if (!period.IsAll) { BuildPeriodInsights(games, d); return; }
             var real = games.Where(h => !h.IsTool).ToList();
             var lines = new List<string>();
             var year = DateTime.Now.Year;
@@ -463,12 +494,12 @@ namespace Ledger
         /// One category breakdown: per value, games owned, % played (bar) and hours. Games count once
         /// per value they carry (a game with two genres counts in both).
         /// </summary>
-        private void BuildBreakdown(string title, List<GameHistory> games, Func<GameHistory, IEnumerable<string>> keys, bool sortByKey = false, int top = 12)
+        private void BuildBreakdown(string title, List<GameHistory> games, Func<GameHistory, IEnumerable<string>> keys, bool sortByKey = false, int top = 12, Func<GameHistory, double> hours = null)
         {
             var rows = games.Where(h => !h.IsTool)
                 .SelectMany(h => (keys(h) ?? Enumerable.Empty<string>()).Distinct().Select(k => new { k, h }))
                 .GroupBy(x => x.k)
-                .Select(g => new { Key = g.Key, Owned = g.Count(), Played = g.Count(x => x.h.Played), Hours = g.Sum(x => x.h.Hours) })
+                .Select(g => new { Key = g.Key, Owned = g.Count(), Played = g.Count(x => x.h.Played), Hours = g.Sum(x => (hours ?? (h => h.Hours))(x.h)) })
                 .ToList();
             if (rows.Count == 0) return;
             rows = sortByKey ? rows.OrderBy(r => r.Key).ToList() : rows.OrderByDescending(r => r.Hours).ThenByDescending(r => r.Owned).ToList();

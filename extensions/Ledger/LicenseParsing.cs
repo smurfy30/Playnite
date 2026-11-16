@@ -12,6 +12,8 @@ namespace Ledger
         public DateTime Date { get; set; }
         public string Name { get; set; }
         public string Method { get; set; }
+        /// <summary>Price paid, when the store reports it (Epic orders).</summary>
+        public decimal? Amount { get; set; }
     }
 
     /// <summary>Pure parsing/matching logic, no Playnite dependencies, so it can be tested offline.</summary>

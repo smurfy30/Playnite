@@ -11,9 +11,26 @@ namespace Ledger
     public class LedgerSettings : ObservableObject
     {
         private bool dailySnapshots = true;
+        private bool trackActivity = true;
+        private int staleDays = 180;
+        private bool includeFamilySharing = false;
+        private string priceRegion = "gb";
+        private string period = "All time";
+        private string store = "All stores";
 
         /// <summary>Write snapshots/yyyy-MM-dd.jsonl on startup and after each library update.</summary>
         public bool DailySnapshots { get => dailySnapshots; set => SetValue(ref dailySnapshots, value); }
+        /// <summary>Background process watcher: records play sessions for games launched outside Playnite.</summary>
+        public bool TrackActivity { get => trackActivity; set => SetValue(ref trackActivity, value); }
+        /// <summary>"Stale install" threshold.</summary>
+        public int StaleDays { get => staleDays; set => SetValue(ref staleDays, Math.Max(7, value)); }
+        /// <summary>Count Steam Family Sharing games in stats (they aren't yours).</summary>
+        public bool IncludeFamilySharing { get => includeFamilySharing; set => SetValue(ref includeFamilySharing, value); }
+        /// <summary>Steam store country code for prices (gb, us, de...).</summary>
+        public string PriceRegion { get => priceRegion; set => SetValue(ref priceRegion, value); }
+        /// <summary>Last-used filters on the Ledger page (remembered between sessions).</summary>
+        public string Period { get => period; set => SetValue(ref period, value); }
+        public string Store { get => store; set => SetValue(ref store, value); }
     }
 
     public class LedgerSettingsViewModel : ObservableObject, ISettings
