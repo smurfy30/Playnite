@@ -8,6 +8,9 @@
         <CheckBox IsChecked="{Binding Settings.TrackActivity}" Margin="0,0,0,6"
                   Content="Track play sessions in the background, including games launched outside Playnite (checks running processes once a minute)"/>
 
+        <CheckBox IsChecked="{Binding Settings.AskForVerdict}" Margin="0,0,0,6"
+                  Content="When I mark a game Beaten/Completed/Abandoned, ask for a rating and a one-line note"/>
+
         <TextBlock Text="Library" FontWeight="SemiBold" Margin="0,16,0,6"/>
         <CheckBox IsChecked="{Binding Settings.IncludeFamilySharing}" Margin="0,0,0,6"
                   Content="Count Steam Family Sharing games as part of my library"/>

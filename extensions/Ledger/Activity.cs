@@ -197,11 +197,13 @@ namespace Ledger
             if (Directory.Exists(snapDir))
             {
                 Dictionary<Guid, ulong> prev = null;
-                foreach (var f in Directory.GetFiles(snapDir, "*.jsonl").OrderBy(x => x))
+                foreach (var f in Snapshots.Ordered(snapDir))
                 {
-                    if (!DateTime.TryParse(Path.GetFileNameWithoutExtension(f), out var day)) continue;
+                    if (!DateTime.TryParse(Path.GetFileName(f).Substring(0, 10), out var day)) continue;
                     idx.TrackedSince = idx.TrackedSince ?? day;
-                    var cur = new Dictionary<Guid, ulong>();
+                    // Delta files only hold changed rows: start from yesterday's state.
+                    var isDelta = f.EndsWith(".d.jsonl");
+                    var cur = isDelta && prev != null ? new Dictionary<Guid, ulong>(prev) : new Dictionary<Guid, ulong>();
                     foreach (var line in File.ReadLines(f))
                     {
                         var id = Field(line, "\"id\":\"", "\"");

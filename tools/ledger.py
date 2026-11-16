@@ -21,19 +21,44 @@ SNAPS = os.path.join(LEDGER, "snapshots")
 
 
 def snapshot_files():
-    return sorted(glob.glob(os.path.join(SNAPS, "*.jsonl")))
+    """Snapshot files in date order. YYYY-MM-DD.jsonl = full; YYYY-MM-DD.d.jsonl = changed rows only."""
+    return sorted(glob.glob(os.path.join(SNAPS, "*.jsonl")), key=lambda p: os.path.basename(p)[:10])
 
 
-def load_snapshot(path):
+def _rows(path):
     with open(path, encoding="utf-8") as f:
         return [json.loads(line) for line in f if line.strip()]
 
 
+def states():
+    """Yield (day, full rows) per snapshot day, overlaying deltas on the last full snapshot."""
+    state = None
+    for p in snapshot_files():
+        name = os.path.basename(p)
+        if not name.endswith(".d.jsonl"):
+            state = {}
+        if state is None:
+            continue
+        for r in _rows(p):
+            state[r["id"]] = r
+        yield name[:10], list(state.values())
+
+
+def load_snapshot(path):
+    """Full rows as of the snapshot file's day (reconstructed if it's a delta)."""
+    day = os.path.basename(path)[:10]
+    for d, rows in states():
+        if d == day:
+            return rows
+    return []
+
+
 def latest():
-    files = snapshot_files()
-    if not files:
+    all_states = list(states())
+    if not all_states:
         sys.exit(f"no snapshots in {SNAPS}. Start Playnite with Ledger installed.")
-    return load_snapshot(files[-1]), os.path.basename(files[-1])[:10]
+    day, rows = all_states[-1]
+    return rows, day
 
 
 def acquisitions():
@@ -94,10 +119,10 @@ def cmd_game(a):
     fp = first_played()
     hist = defaultdict(list)
     ids = {r["id"] for r in hits}
-    for f in snapshot_files():
-        for r in load_snapshot(f):
+    for day, rows in states():
+        for r in rows:
             if r["id"] in ids:
-                hist[r["id"]].append({"day": os.path.basename(f)[:10], "hours": hours(r["playtimeSec"])})
+                hist[r["id"]].append({"day": day, "hours": hours(r["playtimeSec"])})
     out = []
     for r in hits:
         ac = acq.get(r["id"])
@@ -127,11 +152,11 @@ def cmd_game(a):
 
 
 def cmd_daily(a):
-    files = snapshot_files()[-(a.days + 1):]
+    days = list(states())[-(a.days + 1):]
     out = []
     prev = None
-    for f in files:
-        cur = {r["id"]: r for r in load_snapshot(f)}
+    for day, rows in days:
+        cur = {r["id"]: r for r in rows}
         if prev is not None:
             played = []
             for gid, r in cur.items():
@@ -139,7 +164,7 @@ def cmd_daily(a):
                 if d > 0:
                     played.append({"name": r["name"], "hours": hours(d)})
             played.sort(key=lambda x: -x["hours"])
-            out.append({"day": os.path.basename(f)[:10], "hours": round(sum(p["hours"] for p in played), 1), "games": played})
+            out.append({"day": day, "hours": round(sum(p["hours"] for p in played), 1), "games": played})
         prev = cur
 
     def fmt(o):

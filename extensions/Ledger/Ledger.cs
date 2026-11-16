@@ -22,6 +22,7 @@ namespace Ledger
         internal LedgerSettings Settings => settings.Settings;
         internal void SaveSettings() => SavePluginSettings(settings.Settings);
         private ActivityTracker tracker;
+        internal Tracking Tracking { get; private set; }
         internal Snapshots Snapshots { get; }
         internal SteamAcquisitions SteamAcquisitions { get; }
         internal EpicAcquisitions EpicAcquisitions { get; }
@@ -73,6 +74,7 @@ namespace Ledger
                 }
                 else if (cmd == "tidy-names") new TidyNames(PlayniteApi, GetPluginUserDataPath()).Apply();
                 else if (cmd == "hltb-fill") FillHltb(silent: true, all: a.Arguments.Length > 1 && a.Arguments[1] == "all");
+                else if (cmd == "daily") System.Threading.Tasks.Task.Run(() => Tracking?.RunDailyIfDue(force: true));
                 else if (cmd == "fetch-spend") Money.FetchSpend(silent: true);
                 else if (cmd == "fetch-prices") FetchPrices();
                 else if (cmd == "import-epic") EpicAcquisitions.Run(silent: true);
@@ -147,6 +149,8 @@ namespace Ledger
 
         public override void OnApplicationStarted(OnApplicationStartedEventArgs args)
         {
+            Tracking = new Tracking(this, PlayniteApi, GetPluginUserDataPath());
+            Tracking.Start();
             if (settings.Settings.TrackActivity)
             {
                 tracker = new ActivityTracker(PlayniteApi, GetPluginUserDataPath());
@@ -158,7 +162,14 @@ namespace Ledger
             }
         }
 
-        public override void OnApplicationStopped(OnApplicationStoppedEventArgs args) => tracker?.Dispose();
+        public override void OnApplicationStopped(OnApplicationStoppedEventArgs args)
+        {
+            tracker?.Dispose();
+            Tracking?.Dispose();
+        }
+
+        public override void OnGameInstalled(OnGameInstalledEventArgs args) => Tracking?.Installed(args.Game);
+        public override void OnGameUninstalled(OnGameUninstalledEventArgs args) => Tracking?.Uninstalled(args.Game);
 
         public override void OnGameStopped(OnGameStoppedEventArgs args)
         {

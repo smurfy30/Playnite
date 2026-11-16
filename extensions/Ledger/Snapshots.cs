@@ -1,6 +1,7 @@
 using Playnite.SDK;
 using Playnite.SDK.Data;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -14,6 +15,41 @@ namespace Ledger
     /// </summary>
     internal class Snapshots
     {
+        /// <summary>Row without its takenAt, for change detection.</summary>
+        private static string Body(string line)
+        {
+            var i = line.IndexOf(",\"id\":", StringComparison.Ordinal);
+            return i < 0 ? line : line.Substring(i);
+        }
+
+        /// <summary>
+        /// Full state as of the newest snapshot (excluding a given day): last full file, then each
+        /// later delta overlaid in date order. id → raw JSON line. Null if there are no snapshots.
+        /// </summary>
+        public static Dictionary<string, string> ReconstructLatest(string dir, string exclude = null)
+        {
+            Dictionary<string, string> state = null;
+            foreach (var f in Ordered(dir))
+            {
+                var name = Path.GetFileName(f);
+                if (exclude != null && name.StartsWith(exclude)) continue;
+                if (!name.EndsWith(".d.jsonl")) state = new Dictionary<string, string>();
+                if (state == null) continue; // delta before any full: ignore
+                foreach (var line in File.ReadLines(f))
+                {
+                    var i = line.IndexOf("\"id\":\"", StringComparison.Ordinal);
+                    if (i < 0) continue;
+                    var id = line.Substring(i + 6, 36);
+                    state[id] = line;
+                }
+            }
+            return state;
+        }
+
+        /// <summary>Snapshot files in date order; a full and a delta never share a day.</summary>
+        public static IEnumerable<string> Ordered(string dir) =>
+            Directory.Exists(dir) ? Directory.GetFiles(dir, "*.jsonl").OrderBy(f => Path.GetFileName(f).Substring(0, 10)) : Enumerable.Empty<string>();
+
         private static readonly ILogger logger = LogManager.GetLogger();
         private readonly IPlayniteAPI api;
         public string Dir { get; }
@@ -30,13 +66,15 @@ namespace Ledger
             try
             {
                 Directory.CreateDirectory(Dir);
-                var path = Path.Combine(Dir, DateTime.Now.ToString("yyyy-MM-dd") + ".jsonl");
-                if (File.Exists(path) && !force)
+                var day = DateTime.Now.ToString("yyyy-MM-dd");
+                var fullPath = Path.Combine(Dir, day + ".jsonl");
+                var deltaPath = Path.Combine(Dir, day + ".d.jsonl");
+                if ((File.Exists(fullPath) || File.Exists(deltaPath)) && !force)
                 {
                     return null;
                 }
 
-                var sb = new StringBuilder();
+                var rows = new List<KeyValuePair<string, string>>();
                 var takenAt = DateTime.Now.ToString("o");
                 foreach (var g in api.Database.Games.OrderBy(g => g.Name))
                 {
@@ -64,8 +102,22 @@ namespace Ledger
                         releaseYear = g.ReleaseYear,
                         installSize = g.InstallSize
                     };
-                    sb.AppendLine(Serialization.ToJson(row, false));
+                    rows.Add(new KeyValuePair<string, string>(g.Id.ToString(), Serialization.ToJson(row, false)));
                 }
+
+                // Compaction: full snapshot on Mondays or if none in the last 7 days; otherwise only
+                // rows that changed since the reconstructed previous state (readers overlay deltas).
+                var prev = ReconstructLatest(Dir, exclude: day);
+                var lastFull = Directory.GetFiles(Dir, "????-??-??.jsonl").Select(f => Path.GetFileName(f).Substring(0, 10)).Where(d => string.CompareOrdinal(d, day) < 0).OrderBy(d => d).LastOrDefault();
+                var needFull = prev == null || DateTime.Now.DayOfWeek == DayOfWeek.Monday || lastFull == null ||
+                               (DateTime.Now - DateTime.Parse(lastFull)).TotalDays >= 7;
+                var sb = new StringBuilder();
+                foreach (var r in rows)
+                {
+                    if (needFull || !prev.TryGetValue(r.Key, out var old) || Body(old) != Body(r.Value)) sb.AppendLine(r.Value);
+                }
+                var path = needFull ? fullPath : deltaPath;
+                foreach (var stale in new[] { fullPath, deltaPath }.Where(x => x != path && File.Exists(x))) File.Delete(stale);
 
                 // Write-then-move so a crash never leaves a half file that looks complete.
                 var tmp = path + ".tmp";

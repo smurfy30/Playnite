@@ -17,6 +17,7 @@ namespace Ledger
         private string priceRegion = "gb";
         private string period = "All time";
         private string store = "All stores";
+        private bool askForVerdict = true;
 
         /// <summary>Write snapshots/yyyy-MM-dd.jsonl on startup and after each library update.</summary>
         public bool DailySnapshots { get => dailySnapshots; set => SetValue(ref dailySnapshots, value); }
@@ -31,6 +32,8 @@ namespace Ledger
         /// <summary>Last-used filters on the Ledger page (remembered between sessions).</summary>
         public string Period { get => period; set => SetValue(ref period, value); }
         public string Store { get => store; set => SetValue(ref store, value); }
+        /// <summary>Ask for a 1–10 rating + one-line note when a game is marked Beaten/Completed/Abandoned.</summary>
+        public bool AskForVerdict { get => askForVerdict; set => SetValue(ref askForVerdict, value); }
     }
 
     public class LedgerSettingsViewModel : ObservableObject, ISettings

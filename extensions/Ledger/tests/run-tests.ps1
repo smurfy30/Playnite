@@ -52,5 +52,21 @@ $tree = Call $KV "ReadKv" @(,$ms.ToArray())
 $times = $tree["cache"]["1"]["AchievementTimes"]
 Check "kv nested read" ($times["0"] -eq 1600000000 -and $times["1"] -eq 1700000000)
 
+# --- snapshot compaction: full + delta overlay ---
+$SN = $asm.GetType("Ledger.Snapshots")
+$tmp = [string](Join-Path ([IO.Path]::GetTempPath()) ("ledger-snap-" + [guid]::NewGuid()))
+New-Item -ItemType Directory $tmp | Out-Null
+$a = "11111111-1111-1111-1111-111111111111"; $b = "22222222-2222-2222-2222-222222222222"
+Set-Content -Encoding UTF8 (Join-Path $tmp "2026-11-16.jsonl") @(
+  "{`"takenAt`":`"x`",`"id`":`"$a`",`"playtimeSec`":10}",
+  "{`"takenAt`":`"x`",`"id`":`"$b`",`"playtimeSec`":20}")
+Set-Content -Encoding UTF8 (Join-Path $tmp "2026-11-17.d.jsonl") @("{`"takenAt`":`"y`",`"id`":`"$b`",`"playtimeSec`":99}")
+$state = Call $SN "ReconstructLatest" @($tmp, $null)
+Check "delta overlays changed row" ($state[$b] -like '*"playtimeSec":99*')
+Check "delta keeps unchanged row" ($state[$a] -like '*"playtimeSec":10*')
+$prev = Call $SN "ReconstructLatest" @($tmp, "2026-11-17")
+Check "exclude day = previous state" ($prev[$b] -like '*"playtimeSec":20*')
+Remove-Item -Recurse -Force $tmp
+
 Write-Host "`n$fail failure(s)"
 exit $fail
