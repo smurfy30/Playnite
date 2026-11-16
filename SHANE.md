@@ -8,52 +8,75 @@ Upstream: JosefNemec/Playnite (`upstream` remote, mirrored on `master`). Ours: `
 |---|---|
 | `build.sh` | full solution build + copies BrowserProcess + writes `userdatadir.txt` |
 | `source/Playnite/Settings/PlaynitePaths.cs` | patch: `userdatadir.txt` pins user data outside `bin/` |
+| `source/Playnite.DesktopApp/ViewModels/DesktopAppViewModel.cs` | patch: `playnite://playnite/downloadmetadata[/all]` |
 | `source/Playnite/Common.config` | dev config pointed at the real add-on API, online |
-| `extensions/` | our own plugins. `extensions/deploy.sh` builds and installs them |
-| `extensions/Ledger/` | daily snapshots + Steam acquisition dates |
-| `tools/install-addons.py` | install community add-ons from the official API |
-| `tools/ledger.py` | query Ledger data: `stats`, `game`, `daily`, `backlog` (`--json`) |
+| `extensions/Ledger/` | our plugin: history, acquisitions, first-played, mods, Up next |
+| `extensions/deploy.sh` | build our plugins → user data `Extensions/` (closes Playnite) |
+| `extensions/render.sh` | deploy + start + render the Ledger page to PNG (UI check without clicking) |
+| `extensions/Ledger/tests/run-tests.ps1` | offline tests for parsing/matching/KV (exit code = failures) |
+| `tools/install-addons.py` | install community add-ons from the official API (newest SDK-compatible) |
+| `tools/ledger.py` | query Ledger data: `stats`, `game`, `daily`, `backlog` (`--json` for hub/Bridge) |
+| `tools/steam_local_stats.py` | read Steam's local achievement cache (first/last unlock per app) |
 
 User data: `E:/projects/playnite-data` (never in git; it holds store tokens).
+Backups: `E:/projects/playnite-data-backups/` (manual tarballs + Playnite auto-backup in `auto/`).
 
 ## Rules
 - Prefer a plugin in `extensions/` over patching `source/`. Patches make upstream merges hurt.
-- Counts are queries (`tools/ledger.py`), never stored.
-- Never overwrite data without a recorded way back (Ledger keeps `PreviousAdded`).
+  Core patches so far are tiny and marked `shane/main` in a comment. Keep it that way.
+- Counts are queries (`tools/ledger.py`, snapshot JSONL), never stored.
+- Never overwrite data without a recorded way back (Ledger keeps `PreviousAdded`; Undo in menu).
+- Back up `playnite-data` with Playnite **closed** (LiteDB files are locked while it runs).
 
-## Installed community add-ons (2026-11-16)
+## Ledger (extensions/Ledger)
+Sidebar page **Ledger** + game menu **Ledger → History… / Mods…** + main menu **Extensions → Ledger**.
+
+| feature | source of truth |
+|---|---|
+| Daily snapshots (`snapshots/yyyy-MM-dd.jsonl`) | Playnite DB on startup / after library update |
+| Acquisition dates → Game.Added | steamcommunity licenses page (all pages, logged-in webview) |
+| First played | earliest unlock in `Steam/appcache/stats/UserGameStats_<acct>_<app>.bin`: no key, no network |
+| Timeline (started vs bought per year) | the two above |
+| Up next / Pick for me | taste = playtime share per genre; + rating; + installed |
+| Stale installs | installed, unplayed 180 days, by size |
+| Mods | Workshop `appworkshop_*.acf` (titles via public GetPublishedFileDetails, cached), Vortex staging dirs, r2modman `mods.yml` |
+
+URIs (for scripts): `playnite://ledger/render`, `render-mods/<name>`, `snapshot`, `import-steam`.
+
+## Community add-ons (2026-11-16)
 Metadata: IGDB, Universal Steam, PCGamingWiki, Extra Metadata Loader.
-Tracking: GameActivity (sessions), SuccessStory (achievements), HowLongToBeat, CheckDlc, Year In Review.
-Library: DuplicateHider. Mods: r2modman Launch Options, Nexus Mods checker.
+Tracking: GameActivity, SuccessStory **pinned to 3.7** (3.7.1 has Steam always-disabled bug:
+upstream commit 90467e5 dropped `EnabledInSettings`; don't accept the update), HowLongToBeat,
+CheckDlc, Year In Review. Library: DuplicateHider (auto, Steam > GOG > Epic > …; 47 hidden).
+Mods: r2modman Launch Options, Nexus Mods checker.
 
-## Idea backlog (PM'd 2026-11-16; keep/kill is Shane's call)
+Known add-on gaps (need a login by Shane, all optional):
+- SuccessStory Steam unlocks need a Steam login *inside SuccessStory* (it scrapes the web profile);
+  Ledger already gets unlock times locally, so this only matters for its achievement UI.
+- SuccessStory / CheckDlc Epic + GOG: "not authenticated". EA linked-account import fails.
 
-Ranked by value ÷ effort. Status: **built**, **try** (worth a spike), **park**.
+## Idea backlog (keep/kill is Shane's call)
 
-1. **built** Daily snapshots (Ledger). Playtime history across all stores, from 2026-11-16 on.
-2. **built, needs you once** Steam acquisition dates → `Date added`. Menu → Ledger →
-   Import Steam acquisition dates (one Steam login in Playnite's browser).
-3. **try P1** *First played* estimate per game: earliest of (SuccessStory's first achievement
-   unlock, GameActivity's first session, Steam `rtime_last_played` when playtime is tiny). Gets
-   real dates for the backlog that Steam never kept. Needs SuccessStory to have fetched
-   achievements first (its menu → refresh all).
-4. **try P1** Library on your phone via Bridge: `tools/ledger.py --json` behind bridge-agent
-   (`/playnite/*`), plus a panel. Read-only, no Playnite running needed. The cheapest win
-   for "use it away from the desktop". Compare with the community *Playnite Web* add-on
-   (MQTT + web app) before building our own UI.
-5. **try P2** Epic/GOG acquisition dates. Epic's order history API and GOG's
-   `/account/getFilteredProducts` give purchase dates via the same logged-in webview trick.
-6. **try P2** Mods panel: per game, mods installed via r2modman/Thunderstore profiles
-   (`%AppData%/r2modmanPlus-local`), Vortex (`D:/Vortex Mods`, pc-status already reads it),
-   Steam Workshop (`steamapps/workshop/content/<appid>`). Read-only first. Shows as a game
-   details section in Playnite and as JSON for Bridge.
-7. **try P2** "Should I play" view: backlog × HowLongToBeat × Steam review score ×
-   installed. A filter preset plus a ledger command.
-8. **park** Weekly digest to the phone (estate-mcp): hours played, new games, stale installs
-   (installed, not played in 90 days, size on disk) as uninstall candidates.
-9. **park** Rust/Tauri rewrite. Revisit only if WPF/.NET 4.6.2 blocks something we want.
+Status: **built**, **try** (worth a spike), **park**, **blocked** (needs a decision).
+
+1. **built** Daily snapshots.
+2. **built** Steam acquisition dates (340 matched of 360 own Steam games).
+3. **built** First played from Steam local cache (152 games, back to 2015).
+4. **built** Mods index + per-game window (3,012 mods, 21 games).
+5. **built** Up next + Pick for me.
+6. **built** Metadata fill (covers missing 321 → 16; genres 735 → 44).
+7. **blocked: decide** Phone view. Option A: `ledger.py --json` behind bridge-agent `/playnite/*`
+   + a Bridge panel (cheap, fits the setup). Option B: Playnite Web add-on + its server container
+   on the Pi. Both touch live infra, so neither was done unattended.
+8. **try P2** Epic/GOG acquisition dates: Epic order history / GOG `getFilteredProducts` via the
+   same logged-in webview trick (needs those logins in Playnite's browser).
+9. **try P2** Weekly digest to phone (estate-mcp): hours, new games, stale installs.
+10. **try P3** Vortex mod sizes (dir walks are slow; do it async + cache).
+11. **park** Rust/Tauri rewrite.
 
 ## Known caveats
-- Family-shared Steam games (95) share the Steam PluginId. They won't have licenses on
-  your account, so they stay unmatched (correct).
-- Prefix matching skips names under 6 chars to avoid false matches (e.g. Hades vs a bundle).
+- Family-shared Steam games share the Steam PluginId; they have no licenses on your account.
+- Prefix matching: names < 6 chars only match exactly; never across a digit (Fallout ≠ Fallout 76).
+- A cluster of first-play dates on 2018-01-01/02 is probably a Steam sync artifact.
+- "Median wait = same day" only covers games with achievements *and* a license date. Biased
+  towards games played immediately.

@@ -44,6 +44,27 @@ def acquisitions():
         return {r["GameId"]: r for r in json.load(f)}
 
 
+def first_played():
+    """appId -> first unlock ISO date, from the Steam client's local achievement cache."""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import steam_local_stats as sls
+        out = {}
+        for app, path in sls.all_games():
+            try:
+                t = sls.unlock_times(sls.load(path))
+            except Exception:
+                continue
+            if t:
+                out[str(app)] = sls.iso(min(t))[:10]
+        return out
+    except Exception:
+        return {}
+
+
+STEAM_PLUGIN = "cb91dfc9-b977-43bf-8e70-55f46e410fab"
+
+
 def hours(sec):
     return round((sec or 0) / 3600, 1)
 
@@ -59,6 +80,8 @@ def cmd_stats(a):
         "neverPlayed": sum(1 for r in rows if not r["playtimeSec"]),
         "totalHours": hours(sum(r["playtimeSec"] or 0 for r in rows)),
         "acquisitionDatesKnown": len(acquisitions()),
+        "firstPlayedKnown": len(first_played()),
+        "hiddenDuplicates": sum(1 for r in rows if r["hidden"]),
     }
     return out, lambda o: "\n".join(f"{k:22} {v}" for k, v in o.items())
 
@@ -68,6 +91,7 @@ def cmd_game(a):
     q = a.name.lower()
     hits = [r for r in rows if q in r["name"].lower()]
     acq = acquisitions()
+    fp = first_played()
     hist = defaultdict(list)
     ids = {r["id"] for r in hits}
     for f in snapshot_files():
@@ -81,6 +105,7 @@ def cmd_game(a):
             "name": r["name"], "store": r["source"], "hours": hours(r["playtimeSec"]),
             "lastPlayed": (r["lastActivity"] or "")[:10] or None, "installed": r["installed"],
             "acquired": ac["Acquired"][:10] if ac else None, "license": ac["License"] if ac else None,
+            "firstPlayed": fp.get(r["gameId"]) if r["pluginId"] == STEAM_PLUGIN else None,
             "history": hist[r["id"]],
         })
 
@@ -93,6 +118,8 @@ def cmd_game(a):
             lines.append(f"  playtime {g['hours']}h · last played {g['lastPlayed'] or 'never'} · installed {g['installed']}")
             lines.append(f"  acquired {g['acquired'] or 'unknown (run Ledger → Import Steam acquisition dates)'}"
                          + (f" via \"{g['license']}\"" if g["license"] else ""))
+            if g["firstPlayed"]:
+                lines.append(f"  first played {g['firstPlayed']} (earliest Steam achievement)")
             if len(g["history"]) > 1:
                 lines.append("  history " + ", ".join(f"{h['day']}={h['hours']}h" for h in g["history"]))
         return "\n".join(lines)
