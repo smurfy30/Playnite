@@ -49,6 +49,11 @@ shelf) · Timeline (play calendar heatmap + (started vs got, comfort/forgotten, 
 | Money: spend | Steam purchase history (logged-in webview, "load more" clicked via JS), attributed per game (DLC to base game, bundles split by list price, collections across franchise, refunds subtracted) + Epic order totals |
 | Money: value | Steam store `appdetails?filters=price_overview` (public, batched 50, cached 7 days, region in settings) |
 | Activity | background process watcher (60s, exe path under a game's install dir → session; skips Playnite-running games) + Playnite OnGameStopped + GameActivity + snapshot deltas; day hours = max(sessions, delta) |
+| Event log (`events.jsonl`) | installs/uninstalls (size, drive), completion-status changes with dates, wishlist adds/removes (bought vs dropped), mod adds/removes per game, verdicts |
+| Daily collect (`daily/*.json`, hourly check, once a day) | free space per drive, Steam wishlist (public API), prices for wishlist + unplayed (own price history) → sale alerts (50%+ or lowest seen after 14 days, once per sale) |
+| Verdict prompt | marking Beaten/Completed/Abandoned asks 1–10 → UserScore and a one-line note → Notes (setting) |
+| Snapshot compaction | full `YYYY-MM-DD.jsonl` weekly (Mon) + `YYYY-MM-DD.d.jsonl` changed rows; readers overlay (C# `Snapshots.ReconstructLatest`, py `states()`) |
+| Wishlist tab | names via IStoreBrowseService/GetItems (public), on sale, owned on another store, waiting longest |
 | Mods | Workshop `appworkshop_*.acf` (titles via public GetPublishedFileDetails, cached), Vortex staging dirs, r2modman `mods.yml` |
 
 URIs (for scripts): `playnite://ledger/render/<tab|full>`, `hltb-fill[/all]`, `tidy-names`, `render-mods/<name>`, `snapshot`, `import-steam`, `import-epic`, `probe/<url>` (dev: dump what the logged-in browser sees).

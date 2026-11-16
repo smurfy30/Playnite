@@ -155,6 +155,7 @@ namespace Ledger
                 Try("prices", () => day["prices"] = WatchPrices(day.TryGetValue("wishlist", out var w) ? (Dictionary<string, WishItem>)w : null));
                 Try("mods", ModDiff);
                 File.WriteAllText(today, Serialization.ToJson(day, true));
+                Try("sale alerts", SaleAlerts);
                 logger.Info($"Ledger daily collect written: {today}");
             }
             catch (Exception e) { logger.Error(e, "Ledger daily collect failed"); }
@@ -234,6 +235,31 @@ namespace Ledger
                 }
             }
             File.WriteAllText(statePath, Serialization.ToJson(now, false));
+        }
+
+        /// <summary>
+        /// Notify (Playnite bell) when a wishlist game is 50%+ off, or at the lowest price we've recorded
+        /// after 2+ weeks of watching. Once per game per sale: alerted state lives in state/alerts.json.
+        /// </summary>
+        private void SaleAlerts()
+        {
+            var wish = WishlistIndex.Build(api, dir, Enumerable.Empty<GameHistory>());
+            var statePath = Path.Combine(StateDir, "alerts.json");
+            var alerted = File.Exists(statePath) ? Serialization.FromJsonFile<Dictionary<string, decimal>>(statePath) ?? new Dictionary<string, decimal>() : new Dictionary<string, decimal>();
+            foreach (var w in wish)
+            {
+                if (!w.Now.HasValue || w.DiscountPct == 0) { alerted.Remove(w.AppId); continue; } // sale over → can alert again next time
+                var big = w.DiscountPct >= 50;
+                var low = w.DaysTracked >= 14 && w.LowestSeen.HasValue && w.Now <= w.LowestSeen;
+                if (!(big || low)) continue;
+                if (alerted.TryGetValue(w.AppId, out var price) && price <= w.Now) continue;
+                alerted[w.AppId] = w.Now.Value;
+                var url = "https://store.steampowered.com/app/" + w.AppId;
+                api.Notifications.Add(new NotificationMessage("ledger-sale-" + w.AppId,
+                    $"Wishlist: {w.Name} is -{w.DiscountPct}% ({w.Now:0.00})" + (low ? ", the lowest Ledger has seen" : "") + ". Click to open the store page.",
+                    NotificationType.Info, () => System.Diagnostics.Process.Start(url)));
+            }
+            File.WriteAllText(statePath, Serialization.ToJson(alerted, true));
         }
 
         private string SteamId()

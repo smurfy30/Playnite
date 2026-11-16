@@ -110,9 +110,9 @@ namespace Ledger
             var g = Scope(d.Visible);
             var builders = new Action[]
             {
-                () => { BuildCards(g, d); BuildInsights(g, d); BuildOnThisDay(g); BuildUpNext(d.UpNext.Where(x => g.Contains(x.H)).ToList(), 5, withPick: true); },
+                () => { BuildCards(g, d); BuildInsights(g, d); BuildOnThisDay(g); BuildUpNext(d.UpNext.Where(x => g.Contains(x.H)).ToList(), 5, withPick: true); BuildRecent(); },
                 () => { BuildShelves(g); BuildQuickWins(g); BuildUpNext(d.UpNext.Where(x => g.Contains(x.H)).ToList(), 15, withPick: true); BuildOldestUnplayed(g); },
-                () => { BuildDrives(g); BuildStaleInstalls(g); BuildInstalledNeverPlayed(g); },
+                () => { BuildDrives(g); BuildDiskTrend(); BuildStaleInstalls(g); BuildInstalledNeverPlayed(g); },
                 () => { BuildStats(g, d); },
                 () => { BuildMoney(d, g); },
                 () => { BuildWishlist(d); },
