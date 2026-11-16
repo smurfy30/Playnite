@@ -20,7 +20,8 @@ namespace Ledger
             Line2 = line2,
             CoverPath = Cover(h),
             Tip = Tooltip(h),
-            OnClick = () => OpenDrawer(h.Game.Id)
+            OnClick = () => OpenDrawer(h.Game.Id),
+            Menu = MenuFor(h)
         };
 
         /// <summary>A collapsible area that charts above it fill with the games behind a clicked segment.</summary>

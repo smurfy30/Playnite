@@ -20,21 +20,22 @@ namespace Ledger
     /// </summary>
     internal partial class LedgerView : UserControl
     {
-        public static readonly string[] Tabs = { "Overview", "Discover", "Explorer", "Backlog", "Installs", "Stats", "Money", "Wishlist", "Timeline", "Mods" };
+        public static readonly string[] Tabs = { "Overview", "Discover", "Lists", "Explorer", "Backlog", "Installs", "Stats", "Money", "Wishlist", "Timeline", "Mods" };
+        private List<string> tabNames = new List<string>();
 
         private readonly Ledger plugin;
         private readonly IPlayniteAPI api;
         private readonly Grid shell = new Grid();
         private readonly TabControl tabs = new TabControl();
         private StackPanel root; // the panel the Build* helpers currently write into
-        private int selectedTab;
+        private string selectedTabName = "Overview";
 
         public LedgerView(Ledger plugin, IPlayniteAPI api, bool sync = false)
         {
             this.plugin = plugin;
             this.api = api;
             filter = plugin.Settings.CurrentFilter().Clone();
-            selectedTab = Math.Max(0, Array.IndexOf(Tabs, plugin.Settings.LastTab ?? "Overview"));
+            selectedTabName = plugin.Settings.LastTab ?? "Overview";
             Content = shell;
             shell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             shell.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -42,9 +43,9 @@ namespace Ledger
             tabs.SelectionChanged += (s, e) =>
             {
                 if (e.Source != tabs || tabs.SelectedIndex < 0) return;
-                selectedTab = tabs.SelectedIndex;
-                plugin.Settings.LastTab = Tabs[selectedTab];
-                EnsureBuilt(selectedTab); // lazy: a tab is built the first time it's shown
+                selectedTabName = tabNames[tabs.SelectedIndex];
+                plugin.Settings.LastTab = selectedTabName;
+                EnsureBuilt(tabs.SelectedIndex); // lazy: a tab is built the first time it's shown
             };
             Refresh(sync);
         }
@@ -118,33 +119,31 @@ namespace Ledger
             period = Period.Options(years).FirstOrDefault(p => p.Name == filter.Period) ?? new Period { Name = "All time" };
 
             var g = Scope(d.Visible);
-            builders = new Action[]
+            var spec = Spec(g, d);
+            tabNames = OrderedTabs().Where(t => spec.ContainsKey(t)).ToList();
+            builders = tabNames.Select(t => (Action)(() =>
             {
-                () => { BuildCards(g, d); if (period.IsAll) BuildOverviewCharts(g); BuildInsights(g, d); BuildOnThisDay(g); BuildUpNextTiles(d.UpNext.Where(x => g.Contains(x.H)).ToList(), 8); BuildRecent(); },
-                () => { BuildDiscover(d); },
-                () => { BuildExplorer(g, d); },
-                () => { BuildShelves(g); BuildQuickWinTiles(g); BuildUpNextTiles(d.UpNext.Where(x => g.Contains(x.H)).ToList(), 16); BuildOldestUnplayed(g); },
-                () => { BuildDrives(g); BuildDiskTrend(); BuildStaleInstalls(g); BuildInstalledNeverPlayed(g); },
-                () => { BuildStats(g, d); },
-                () => { BuildMoney(d, g); },
-                () => { BuildWishlist(d); },
-                () => { BuildHeatmap(d, g); BuildTimelineColumns(g); BuildComfortTiles(g); BuildTimeline(g); BuildMostPlayed(g); },
-                () => { BuildMods(d.Mods); BuildFooter(); },
-            };
+                var hidden = new HashSet<string>(plugin.Settings.HiddenSections ?? new List<string>());
+                foreach (var sec in spec[t])
+                {
+                    if (hidden.Contains(t + "/" + sec.Key)) continue;
+                    sec.Value();
+                }
+            })).ToArray();
             Array.Clear(built, 0, built.Length);
 
             tabs.Items.Clear();
-            for (var i = 0; i < Tabs.Length; i++)
+            for (var i = 0; i < tabNames.Count; i++)
             {
                 pages.Add(new StackPanel { Margin = new Thickness(10, 10, 10, 30) });
                 tabs.Items.Add(new TabItem
                 {
-                    Header = Tabs[i],
+                    Header = tabNames[i],
                     // Explorer manages its own scrolling (DataGrid); everything else scrolls as a page.
-                    Content = Tabs[i] == "Explorer" ? (object)pages[i] : new ScrollViewer { Content = pages[i], VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }
+                    Content = tabNames[i] == "Explorer" ? (object)pages[i] : new ScrollViewer { Content = pages[i], VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }
                 });
             }
-            var sel = Math.Min(selectedTab, Tabs.Length - 1);
+            var sel = Math.Max(0, tabNames.IndexOf(selectedTabName));
             EnsureBuilt(sel);
             tabs.SelectedIndex = sel;
 
@@ -193,9 +192,9 @@ namespace Ledger
         }
 
         /// <summary>For headless renders: the built content of one tab (call after a sync Refresh).</summary>
-        public StackPanel DetachPage(int i)
+        public StackPanel DetachPage(string name)
         {
-            i = Math.Max(0, Math.Min(i, pages.Count - 1));
+            var i = Math.Max(0, tabNames.FindIndex(t => t.Equals(name, StringComparison.OrdinalIgnoreCase)));
             EnsureBuilt(i);
             var page = pages[i];
             if (page.Parent is ScrollViewer sv) sv.Content = null;

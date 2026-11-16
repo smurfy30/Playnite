@@ -20,7 +20,8 @@ namespace Ledger
         private void BuildDiscover(Data d)
         {
             var free = plugin.Discover.LoadFree();
-            var recs = plugin.Discover.LoadRecs();
+            var dismissed = Lists.Dismissed();
+            var recs = plugin.Discover.LoadRecs().Where(r => !dismissed.Contains(r.AppId)).ToList();
             var profile = plugin.Discover.LoadProfile();
             var ownedNames = new HashSet<string>(d.Index.Games.Select(h => UpNext.BaseName(h.Game.Name)));
 
@@ -90,11 +91,12 @@ namespace Ledger
                     Line2 = string.Join(", ", r.Because.Take(2)),
                     CoverPath = CachedCover(r.AppId + ".jpg"),
                     Tip = $"{r.Name}\n{r.Positive + r.Negative:N0} reviews, {r.ReviewPct}% positive\nMatches: {string.Join(", ", r.Because)}\nClick to open on Steam",
-                    OnClick = () => Open("https://store.steampowered.com/app/" + r.AppId)
+                    OnClick = () => Open("https://store.steampowered.com/app/" + r.AppId),
+                    Menu = MenuFor(r)
                 };
 
                 var main = recs.Where(r => r.LikeGame == null).ToList();
-                Section("Picks for you", "Games you don't own (on any store) that match your taste, with strong reviews. Click for the Steam page.");
+                Section("Picks for you", "Games you don't own (on any store) that match your taste, with strong reviews. Click for Steam; right-click to save to a list or dismiss.");
                 root.Children.Add(Charts.Tiles(main.Take(14).Select(RecTile)));
 
                 foreach (var tag in profile.Keys.Take(4))

@@ -101,8 +101,7 @@ namespace Ledger
                 filter = v.Filter.Clone();
                 filter.IncludeFamilySharing = plugin.Settings.CurrentFilter().IncludeFamilySharing;
                 plugin.Settings.Filter = filter;
-                var tab = Array.IndexOf(Tabs, v.Tab);
-                if (tab >= 0) selectedTab = tab;
+                if (!string.IsNullOrEmpty(v.Tab)) selectedTabName = v.Tab;
                 plugin.SaveSettings();
                 Dispatcher.BeginInvoke((Action)(() => SafeShow(last)));
             };
@@ -110,6 +109,7 @@ namespace Ledger
             actions.Children.Add(Btn("Save view", SaveView, enabled: !filter.IsEmpty));
             actions.Children.Add(Btn(filtersOpen ? "Filters ▴" : "Filters ▾", () => { filtersOpen = !filtersOpen; SafeShow(last); }, accent: filtersOpen));
             actions.Children.Add(Btn("Reset", () => Edit(f => { var fam = f.IncludeFamilySharing; ResetTo(f); f.IncludeFamilySharing = fam; }), enabled: !filter.IsEmpty));
+            actions.Children.Add(Btn("⚙", OpenCustomise, tip: "Customise tabs and sections"));
             actions.Children.Add(Btn("⟳", () => Refresh(), tip: "Reload everything"));
             DockPanel.SetDock(actions, Dock.Right);
             row.Children.Insert(0, actions);
@@ -146,7 +146,7 @@ namespace Ledger
             if (!r.Result || string.IsNullOrWhiteSpace(r.SelectedString)) return;
             var list = plugin.Settings.SavedViews ?? new List<SavedView>();
             list.RemoveAll(v => v.Name == r.SelectedString.Trim());
-            list.Add(new SavedView { Name = r.SelectedString.Trim(), Tab = Tabs[Math.Max(0, selectedTab)], Filter = filter.Clone() });
+            list.Add(new SavedView { Name = r.SelectedString.Trim(), Tab = selectedTabName, Filter = filter.Clone() });
             plugin.Settings.SavedViews = list;
             plugin.SaveSettings();
             SafeShow(last);
@@ -300,7 +300,7 @@ namespace Ledger
         }
 
         internal void TestOpenFilters() { filtersOpen = true; SafeShow(last); }
-        internal void TestSelectTab(string name) { selectedTab = Math.Max(0, Array.IndexOf(Tabs, name)); SafeShow(last); }
+        internal void TestSelectTab(string name) { selectedTabName = name; SafeShow(last); }
 
         /// <summary>Test hook: re-filter an already-shown page (the path that used to crash).</summary>
         internal void ApplyStoreFilter(string store)

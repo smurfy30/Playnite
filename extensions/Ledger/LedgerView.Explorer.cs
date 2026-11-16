@@ -161,7 +161,14 @@ namespace Ledger
             if (g.IsInstalled) actions.Children.Add(Btn("▶ Play", () => api.StartGame(id)));
             else actions.Children.Add(Btn("⬇ Install", () => api.InstallGame(id)));
             actions.Children.Add(Btn("Show in library", () => { api.MainView.SwitchToLibraryView(); api.MainView.SelectGame(id); }));
+            var listBtn = Btn("＋ List", () => { });
+            listBtn.ContextMenu = new ContextMenu();
+            listBtn.ContextMenu.Items.Add(AddToListMenu(() => new ListItem { GameId = id, Name = g.Name }));
+            listBtn.Click += (s, e) => { listBtn.ContextMenu.PlacementTarget = listBtn; listBtn.ContextMenu.IsOpen = true; };
+            actions.Children.Add(listBtn);
+            var inLists = Lists.Load().Where(l => l.Items.Any(i => i.GameId == id)).Select(l => l.Icon + " " + l.Name).ToList();
             info.Children.Add(actions);
+            if (inLists.Count > 0) info.Children.Add(Text("In: " + string.Join(", ", inLists), 11, dim: true));
             top.Children.Add(info);
             sp.Children.Add(top);
 

@@ -175,6 +175,7 @@ namespace Ledger
             public string CoverPath { get; set; }
             public string Tip { get; set; }
             public Action OnClick { get; set; }
+            public ContextMenu Menu { get; set; }
         }
 
         /// <summary>Cover-art tiles (2:3), title + two meta lines under each. Wraps to width.</summary>
@@ -200,6 +201,7 @@ namespace Ledger
                 if (t.Line1 != null) { var l = T(t.Line1, 11, dim: true); l.TextWrapping = TextWrapping.NoWrap; l.TextTrimming = TextTrimming.CharacterEllipsis; card.Children.Add(l); }
                 if (t.Line2 != null) { var l = T(t.Line2, 11, dim: true); l.TextWrapping = TextWrapping.NoWrap; l.TextTrimming = TextTrimming.CharacterEllipsis; card.Children.Add(l); }
                 Hover(card, t.OnClick, scale: true);
+                if (t.Menu != null) card.ContextMenu = t.Menu;
                 wrap.Children.Add(card);
             }
             return wrap;

@@ -48,6 +48,10 @@ namespace Ledger
         /// <summary>User's named views; built-ins are added at runtime.</summary>
         public List<SavedView> SavedViews { get; set; } = new List<SavedView>();
         public string LastTab { get; set; } = "Overview";
+        /// <summary>Customise: tab order (missing tabs appended), hidden tabs, hidden "Tab/Section" keys.</summary>
+        public List<string> TabOrder { get; set; } = new List<string>();
+        public List<string> HiddenTabs { get; set; } = new List<string>();
+        public List<string> HiddenSections { get; set; } = new List<string>();
 
         /// <summary>Filter, migrating the pre-FilterState single-value settings on first use.</summary>
         public FilterState CurrentFilter()

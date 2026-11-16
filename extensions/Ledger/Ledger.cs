@@ -167,11 +167,9 @@ namespace Ledger
                 RenderElement(full, fp, width);
                 return fp;
             }
-            var i = Array.FindIndex(LedgerView.Tabs, t => t.Equals(tab, StringComparison.OrdinalIgnoreCase));
-            if (i < 0 && !int.TryParse(tab, out i)) i = 0;
             var view = new LedgerView(this, PlayniteApi, sync: true);
-            var page = view.DetachPage(i);
-            var path = System.IO.Path.Combine(GetPluginUserDataPath(), $"render-{LedgerView.Tabs[Math.Min(i, LedgerView.Tabs.Length - 1)].ToLowerInvariant()}.png");
+            var page = view.DetachPage(tab);
+            var path = System.IO.Path.Combine(GetPluginUserDataPath(), $"render-{tab.ToLowerInvariant()}.png");
             RenderElement(page, path, width);
             logger.Info($"Ledger render written: {path}");
             return path;
