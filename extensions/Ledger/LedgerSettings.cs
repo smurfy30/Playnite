@@ -42,6 +42,29 @@ namespace Ledger
         public string InstallState { get => installState; set => SetValue(ref installState, value); }
         public string PlayState { get => playState; set => SetValue(ref playState, value); }
         public string Search { get => search; set => SetValue(ref search, value); }
+
+        /// <summary>Current page filter (supersedes the single fields above, which are kept for migration).</summary>
+        public FilterState Filter { get; set; }
+        /// <summary>User's named views; built-ins are added at runtime.</summary>
+        public List<SavedView> SavedViews { get; set; } = new List<SavedView>();
+        public string LastTab { get; set; } = "Overview";
+
+        /// <summary>Filter, migrating the pre-FilterState single-value settings on first use.</summary>
+        public FilterState CurrentFilter()
+        {
+            if (Filter != null) return Filter;
+            Filter = new FilterState
+            {
+                Period = Period ?? "All time",
+                Stores = Store != null && Store != "All stores" ? new List<string> { Store } : new List<string>(),
+                Genres = Genre != null && Genre != "All genres" ? new List<string> { Genre } : new List<string>(),
+                Installed = InstallState == "Any" ? null : InstallState,
+                Played = PlayState == "Any" ? null : PlayState,
+                Search = string.IsNullOrWhiteSpace(Search) ? null : Search,
+                IncludeFamilySharing = IncludeFamilySharing
+            };
+            return Filter;
+        }
     }
 
     public class LedgerSettingsViewModel : ObservableObject, ISettings

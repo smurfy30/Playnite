@@ -20,7 +20,7 @@ namespace Ledger
     /// </summary>
     internal partial class LedgerView : UserControl
     {
-        public static readonly string[] Tabs = { "Overview", "Backlog", "Installs", "Stats", "Money", "Wishlist", "Timeline", "Mods" };
+        public static readonly string[] Tabs = { "Overview", "Explorer", "Backlog", "Installs", "Stats", "Money", "Wishlist", "Timeline", "Mods" };
 
         private readonly Ledger plugin;
         private readonly IPlayniteAPI api;
@@ -33,15 +33,19 @@ namespace Ledger
         {
             this.plugin = plugin;
             this.api = api;
-            storeFilter = plugin.Settings.Store ?? "All stores";
-            period = new Period { Name = plugin.Settings.Period ?? "All time" };
-            genreFilter = plugin.Settings.Genre ?? "All genres";
-            installFilter = plugin.Settings.InstallState ?? "Any";
-            playFilter = plugin.Settings.PlayState ?? "Any";
-            searchFilter = plugin.Settings.Search ?? "";
+            filter = plugin.Settings.CurrentFilter().Clone();
+            selectedTab = Math.Max(0, Array.IndexOf(Tabs, plugin.Settings.LastTab ?? "Overview"));
             Content = shell;
-            tabs.Margin = new Thickness(20, 10, 20, 0);
-            tabs.SelectionChanged += (s, e) => { if (e.Source == tabs) selectedTab = tabs.SelectedIndex; };
+            shell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            shell.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            tabs.Margin = new Thickness(20, 6, 20, 0);
+            tabs.SelectionChanged += (s, e) =>
+            {
+                if (e.Source != tabs || tabs.SelectedIndex < 0) return;
+                selectedTab = tabs.SelectedIndex;
+                plugin.Settings.LastTab = Tabs[selectedTab];
+                EnsureBuilt(selectedTab); // lazy: a tab is built the first time it's shown
+            };
             Refresh(sync);
         }
 
@@ -97,6 +101,9 @@ namespace Ledger
 
         private readonly List<StackPanel> pages = new List<StackPanel>();
 
+        private Action[] builders = new Action[0];
+        private readonly bool[] built = new bool[16];
+
         private void Show(Data d)
         {
             last = d;
@@ -107,14 +114,14 @@ namespace Ledger
                 shell.Children.Add(Text("Ledger couldn't build its index: " + d?.Error, 14));
                 return;
             }
-            // Resolve the remembered period name against the real options (dates depend on today).
             var years = d.Index.Games.SelectMany(h => new[] { h.Acquired?.Year, h.FirstPlayed?.Year, h.LastPlayed?.Year }).Where(y => y.HasValue).Select(y => y.Value).Distinct();
-            period = Period.Options(years).FirstOrDefault(p => p.Name == period.Name) ?? new Period { Name = "All time" };
+            period = Period.Options(years).FirstOrDefault(p => p.Name == filter.Period) ?? new Period { Name = "All time" };
 
             var g = Scope(d.Visible);
-            var builders = new Action[]
+            builders = new Action[]
             {
                 () => { BuildCards(g, d); if (period.IsAll) BuildOverviewCharts(g); BuildInsights(g, d); BuildOnThisDay(g); BuildUpNextTiles(d.UpNext.Where(x => g.Contains(x.H)).ToList(), 8); BuildRecent(); },
+                () => { BuildExplorer(g, d); },
                 () => { BuildShelves(g); BuildQuickWinTiles(g); BuildUpNextTiles(d.UpNext.Where(x => g.Contains(x.H)).ToList(), 16); BuildOldestUnplayed(g); },
                 () => { BuildDrives(g); BuildDiskTrend(); BuildStaleInstalls(g); BuildInstalledNeverPlayed(g); },
                 () => { BuildStats(g, d); },
@@ -123,31 +130,43 @@ namespace Ledger
                 () => { BuildHeatmap(d, g); BuildTimelineColumns(g); BuildComfortTiles(g); BuildTimeline(g); BuildMostPlayed(g); },
                 () => { BuildMods(d.Mods); BuildFooter(); },
             };
+            Array.Clear(built, 0, built.Length);
 
             tabs.Items.Clear();
             for (var i = 0; i < Tabs.Length; i++)
             {
-                root = new StackPanel { Margin = new Thickness(10, 10, 10, 30) };
-                try { builders[i](); }
-                catch (Exception e) { root.Children.Add(Text($"This tab failed: {e.Message}", 12, dim: true)); }
-                pages.Add(root);
+                pages.Add(new StackPanel { Margin = new Thickness(10, 10, 10, 30) });
                 tabs.Items.Add(new TabItem
                 {
                     Header = Tabs[i],
-                    Content = new ScrollViewer { Content = root, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }
+                    // Explorer manages its own scrolling (DataGrid); everything else scrolls as a page.
+                    Content = Tabs[i] == "Explorer" ? (object)pages[i] : new ScrollViewer { Content = pages[i], VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }
                 });
             }
-            tabs.SelectedIndex = Math.Min(selectedTab, Tabs.Length - 1);
+            var sel = Math.Min(selectedTab, Tabs.Length - 1);
+            EnsureBuilt(sel);
+            tabs.SelectedIndex = sel;
 
-            var top = new StackPanel();
-            top.Children.Add(BuildHeader(g));
-            top.Children.Add(BuildFilterBar(d));
+            var top = BuildTopBar(d);
             DockPanel.SetDock(top, Dock.Top);
             var dock = new DockPanel();
             dock.Children.Add(top);
             (tabs.Parent as Panel)?.Children.Remove(tabs); // reused across re-filters
             dock.Children.Add(tabs);
+            Grid.SetColumn(dock, 0);
             shell.Children.Add(dock);
+            (drawer.Parent as Panel)?.Children.Remove(drawer);
+            Grid.SetColumn(drawer, 1);
+            shell.Children.Add(drawer);
+        }
+
+        private void EnsureBuilt(int i)
+        {
+            if (i < 0 || i >= builders.Length || built[i]) return;
+            built[i] = true;
+            root = pages[i];
+            try { builders[i](); }
+            catch (Exception e) { root.Children.Add(Text($"This tab failed: {e.Message}", 12, dim: true)); }
         }
 
         private void BuildStats(List<GameHistory> all, Data d)
@@ -175,8 +194,11 @@ namespace Ledger
         /// <summary>For headless renders: the built content of one tab (call after a sync Refresh).</summary>
         public StackPanel DetachPage(int i)
         {
-            var page = pages[Math.Max(0, Math.Min(i, pages.Count - 1))];
+            i = Math.Max(0, Math.Min(i, pages.Count - 1));
+            EnsureBuilt(i);
+            var page = pages[i];
             if (page.Parent is ScrollViewer sv) sv.Content = null;
+            if (page.Parent is TabItem ti) ti.Content = null;
             return page;
         }
 
@@ -250,7 +272,8 @@ namespace Ledger
             {
                 // Pace: hours played in the last 12 months is unknown before snapshots accumulate, so use
                 // lifetime hours ÷ years since the first known play as a rough rate.
-                var firstEver = real.Where(h => h.FirstPlayed.HasValue).Select(h => h.FirstPlayed.Value).DefaultIfEmpty(DateTime.Now.AddYears(-1)).Min();
+                var whole = (last?.Visible ?? real).Where(h => !h.IsTool).ToList();
+                var firstEver = whole.Where(h => h.FirstPlayed.HasValue).Select(h => h.FirstPlayed.Value).DefaultIfEmpty(DateTime.Now.AddYears(-1)).Min();
                 var yearsActive = Math.Max(1, (DateTime.Now - firstEver).TotalDays / 365.25);
                 // Pace is a property of you, not of the filter: use the whole (unfiltered) library.
                 var perYear = (last?.Visible ?? real).Where(h => !h.IsTool).Sum(h => h.Hours) / yearsActive;
@@ -522,7 +545,12 @@ namespace Ledger
                 var grid = Row(new GridLength(220), new GridLength(70), new GridLength(1, GridUnitType.Star), new GridLength(16), new GridLength(1, GridUnitType.Star));
                 var key = r.Key;
                 grid.Background = System.Windows.Media.Brushes.Transparent;
-                Charts.Hover(grid, () => ShowDrill(drill, $"{title}: {key}", games.Where(h => !h.IsTool && (keys(h) ?? Enumerable.Empty<string>()).Contains(key))));
+                Charts.Hover(grid, () =>
+                {
+                    if (title == "Genres") Edit(f => { if (!f.Genres.Contains(key)) f.Genres.Add(key); });
+                    else if (title == "Stores") Edit(f => f.Stores = new List<string> { key });
+                    else ShowDrill(drill, $"{title}: {key}", games.Where(h => !h.IsTool && (keys(h) ?? Enumerable.Empty<string>()).Contains(key)));
+                });
                 Place(grid, Text(r.Key, 13), 0);
                 Place(grid, Text(r.Owned.ToString("N0"), 12, dim: true), 1);
                 Place(grid, Bar(r.Played, Math.Max(r.Owned, 1), $"{Pct(r.Played, r.Owned)} played"), 2);
@@ -735,11 +763,7 @@ namespace Ledger
             var link = new Hyperlink(new Run(h.Game.Name)) { TextDecorations = null, Cursor = Cursors.Hand };
             link.SetResourceReference(TextElement.ForegroundProperty, "TextBrush");
             link.ToolTip = Tooltip(h);
-            link.Click += (s, e) =>
-            {
-                api.MainView.SwitchToLibraryView();
-                api.MainView.SelectGame(h.Game.Id);
-            };
+            link.Click += (s, e) => OpenDrawer(h.Game.Id);
             if (suffix == null) return link;
             var span = new Span();
             span.Inlines.Add(link);

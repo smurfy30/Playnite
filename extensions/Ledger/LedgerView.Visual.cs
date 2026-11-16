@@ -20,7 +20,7 @@ namespace Ledger
             Line2 = line2,
             CoverPath = Cover(h),
             Tip = Tooltip(h),
-            OnClick = () => { api.MainView.SwitchToLibraryView(); api.MainView.SelectGame(h.Game.Id); }
+            OnClick = () => OpenDrawer(h.Game.Id)
         };
 
         /// <summary>A collapsible area that charts above it fill with the games behind a clicked segment.</summary>
@@ -64,34 +64,34 @@ namespace Ledger
         private void BuildOverviewCharts(List<GameHistory> games)
         {
             var real = games.Where(h => !h.IsTool).ToList();
-            Section("Your library at a glance", "Click a slice or legend entry to see the games in it.");
+            Section("Your library at a glance", "Click a slice or legend entry to filter the whole page by it.");
             var row = Panels();
             root.Children.Add(row);
             var drill = NewDrill();
 
-            var buckets = new (string, Func<GameHistory, bool>)[]
+            var buckets = new (string, Func<GameHistory, bool>, Action<FilterState>)[]
             {
-                ("Never played", h => !h.Played),
-                ("Tried (<2h)", h => h.Played && h.Hours < 2),
-                ("2–20h", h => h.Hours >= 2 && h.Hours < 20),
-                ("20–100h", h => h.Hours >= 20 && h.Hours < 100),
-                ("100h+", h => h.Hours >= 100),
+                ("Never played", h => !h.Played, f => { f.Played = "Unplayed"; f.MinHours = f.MaxHours = null; }),
+                ("Tried (<2h)", h => h.Played && h.Hours < 2, f => { f.Played = "Played"; f.MinHours = null; f.MaxHours = 2; }),
+                ("2–20h", h => h.Hours >= 2 && h.Hours < 20, f => { f.Played = null; f.MinHours = 2; f.MaxHours = 20; }),
+                ("20–100h", h => h.Hours >= 20 && h.Hours < 100, f => { f.Played = null; f.MinHours = 20; f.MaxHours = 100; }),
+                ("100h+", h => h.Hours >= 100, f => { f.Played = null; f.MinHours = 100; f.MaxHours = null; }),
             };
             row.Children.Add(Charts.Donut("How much you've played", buckets.Select(b => new Slice
             {
-                Label = b.Item1, Value = real.Count(b.Item2), OnClick = () => ShowDrill(drill, b.Item1, real.Where(b.Item2))
+                Label = b.Item1, Value = real.Count(b.Item2), OnClick = () => Edit(b.Item3)
             }), Pct(real.Count(h => h.Played), real.Count), "played", sort: false));
 
             row.Children.Add(Charts.Donut("Where it's from", real.GroupBy(h => h.Game.Source?.Name ?? "(none)").Select(g => new Slice
             {
-                Label = g.Key, Value = g.Count(), Detail = $"{g.Sum(h => h.Hours):N0}h played", OnClick = () => ShowDrill(drill, g.Key, g)
+                Label = g.Key, Value = g.Count(), Detail = $"{g.Sum(h => h.Hours):N0}h played", OnClick = () => Edit(f => f.Stores = new List<string> { g.Key })
             }), real.Count.ToString("N0"), "games"));
 
             var withMethod = real.Where(h => h.AcquiredVia != null).ToList();
             if (withMethod.Count > 0)
                 row.Children.Add(Charts.Donut("How you got it", withMethod.GroupBy(h => NormalizeMethod(h.AcquiredVia)).Select(g => new Slice
                 {
-                    Label = g.Key, Value = g.Count(), Detail = $"{Pct(g.Count(h => h.Played), g.Count())} played", OnClick = () => ShowDrill(drill, g.Key, g)
+                    Label = g.Key, Value = g.Count(), Detail = $"{Pct(g.Count(h => h.Played), g.Count())} played", OnClick = () => Edit(f => f.Paid = g.Key == "Bought")
                 }), withMethod.Count.ToString("N0"), "with a date"));
         }
 
@@ -128,7 +128,7 @@ namespace Ledger
             {
                 Label = r.Item1,
                 A = real.Count(h => HoursOf(h, d) >= r.Item2 && HoursOf(h, d) < r.Item3),
-                OnClick = () => ShowDrill(drill, $"Played {r.Item1}", real.Where(h => HoursOf(h, d) >= r.Item2 && HoursOf(h, d) < r.Item3))
+                OnClick = () => Edit(f => { f.MinHours = r.Item2 <= 0.01 ? (double?)null : r.Item2; f.MaxHours = r.Item3 == double.MaxValue ? (double?)null : r.Item3; f.Played = r.Item2 <= 0.01 ? "Played" : null; })
             }).ToList();
 
             var yearsBack = DateTime.Now.Year - 24;
@@ -138,7 +138,7 @@ namespace Ledger
                 A = g.Count(),
                 B = g.Count(h => h.Played),
                 Tip = $"Released {g.Key}: {g.Count()} owned, {g.Count(h => h.Played)} played",
-                OnClick = () => ShowDrill(drill, $"Released {g.Key}", g)
+                OnClick = () => Edit(f => { f.MinYear = g.Key; f.MaxYear = g.Key; })
             }).ToList();
 
             var row = Panels();

@@ -117,6 +117,20 @@ namespace Ledger
 
         internal string RenderToPng(string tab = "Overview", int width = 1400)
         {
+            if (tab.Equals("filters", StringComparison.OrdinalIgnoreCase) || tab.Equals("drawer", StringComparison.OrdinalIgnoreCase) || tab.Equals("explorer-full", StringComparison.OrdinalIgnoreCase))
+            {
+                var v = new LedgerView(this, PlayniteApi, sync: true) { Height = 1000 };
+                if (tab.Equals("filters", StringComparison.OrdinalIgnoreCase)) v.TestOpenFilters();
+                if (tab.Equals("explorer-full", StringComparison.OrdinalIgnoreCase)) v.TestSelectTab("Explorer");
+                if (tab.Equals("drawer", StringComparison.OrdinalIgnoreCase))
+                {
+                    var g = PlayniteApi.Database.Games.FirstOrDefault(x => x.Name.IndexOf(renderStore ?? "", StringComparison.OrdinalIgnoreCase) >= 0 && !x.Hidden);
+                    if (g != null) v.OpenDrawer(g.Id);
+                }
+                var vp = System.IO.Path.Combine(GetPluginUserDataPath(), $"render-{tab.ToLowerInvariant()}.png");
+                RenderElement(v, vp, width);
+                return vp;
+            }
             if (tab.Equals("full", StringComparison.OrdinalIgnoreCase))
             {
                 // Whole control as the user sees it (header + tab strip), fixed window-ish size.

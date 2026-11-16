@@ -204,6 +204,8 @@ namespace Ledger
             return wrap;
         }
 
+        internal static BitmapImage LoadImage(string path, int decodeWidth) => Load(path, decodeWidth);
+
         private static BitmapImage Load(string path, int decodeWidth)
         {
             if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path)) return null;
