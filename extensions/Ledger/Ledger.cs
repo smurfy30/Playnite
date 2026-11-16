@@ -58,7 +58,7 @@ namespace Ledger
             var path = System.IO.Path.Combine(GetPluginUserDataPath(), "render.png");
             try
             {
-                var view = new LedgerView(this, PlayniteApi);
+                var view = new LedgerView(this, PlayniteApi, sync: true);
                 var host = new System.Windows.Controls.Border { Child = view, Width = width };
                 host.SetResourceReference(System.Windows.Controls.Border.BackgroundProperty, "WindowBackgourndBrush");
                 // Unconstrained height so the whole page renders, not just one screenful.

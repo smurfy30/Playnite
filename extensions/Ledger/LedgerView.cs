@@ -25,7 +25,7 @@ namespace Ledger
         private readonly StackPanel root = new StackPanel { Margin = new Thickness(30, 20, 30, 30) };
         private const int StaleDays = 180;
 
-        public LedgerView(Ledger plugin, IPlayniteAPI api)
+        public LedgerView(Ledger plugin, IPlayniteAPI api, bool sync = false)
         {
             this.plugin = plugin;
             this.api = api;
@@ -35,33 +35,68 @@ namespace Ledger
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
             };
-            Refresh();
+            Refresh(sync);
         }
 
-        public void Refresh()
+        private class Data
         {
-            root.Children.Clear();
-            HistoryIndex idx;
+            public HistoryIndex Index;
+            public List<GameMods> Mods;
+            public List<Suggestion> UpNext;
+            public string Error;
+        }
+
+        private Data Load()
+        {
+            var d = new Data();
             try
             {
-                idx = HistoryIndex.Build(api, plugin.GetPluginUserDataPath());
+                d.Index = HistoryIndex.Build(api, plugin.GetPluginUserDataPath());
+                d.UpNext = global::Ledger.UpNext.Rank(d.Index.Games);
+                d.Mods = ModIndex.Build(api, plugin.GetPluginUserDataPath());
             }
             catch (Exception e)
             {
-                root.Children.Add(Text("Ledger couldn't build its index: " + e.Message, 14));
+                d.Error = e.Message;
+            }
+            return d;
+        }
+
+        /// <summary>
+        /// Loads data off the UI thread (index + mod scan take ~1s on a big library), then builds the
+        /// page. sync=true does it all inline, for headless renders.
+        /// </summary>
+        public void Refresh(bool sync = false)
+        {
+            if (sync)
+            {
+                Show(Load());
                 return;
             }
+            root.Children.Clear();
+            root.Children.Add(Text("Ledger", 28, bold: true));
+            root.Children.Add(Text("Reading your library…", 13, dim: true));
+            System.Threading.Tasks.Task.Run(() => Load()).ContinueWith(t => Dispatcher.Invoke(() => Show(t.Result)));
+        }
 
-            var games = idx.Games.Where(h => !h.Game.Hidden).ToList();
+        private void Show(Data d)
+        {
+            root.Children.Clear();
+            if (d.Error != null || d.Index == null)
+            {
+                root.Children.Add(Text("Ledger couldn't build its index: " + d.Error, 14));
+                return;
+            }
+            var games = d.Index.Games.Where(h => !h.Game.Hidden).ToList();
             BuildHeader(games);
             BuildCards(games);
             BuildOnThisDay(games);
             BuildTimeline(games);
-            BuildUpNext(idx.Games);
+            BuildUpNext(d.UpNext);
             BuildMostPlayed(games);
             BuildBacklog(games);
             BuildStaleInstalls(games);
-            BuildMods();
+            BuildMods(d.Mods);
             BuildFooter();
         }
 
@@ -169,10 +204,9 @@ namespace Ledger
             }
         }
 
-        private void BuildUpNext(List<GameHistory> all)
+        private void BuildUpNext(List<Suggestion> ranked)
         {
-            var ranked = UpNext.Rank(all);
-            if (ranked.Count == 0) return;
+            if (ranked == null || ranked.Count == 0) return;
 
             var header = new DockPanel { LastChildFill = false };
             Section("Up next", "Unplayed games ranked by your taste (hours per genre), review score and whether it's installed.");
@@ -263,11 +297,9 @@ namespace Ledger
             }
         }
 
-        private void BuildMods()
+        private void BuildMods(List<GameMods> mods)
         {
-            List<GameMods> mods;
-            try { mods = ModIndex.Build(api, plugin.GetPluginUserDataPath()); }
-            catch (Exception e) { root.Children.Add(Text("Mod scan failed: " + e.Message, 12, dim: true)); return; }
+            mods = mods ?? new List<GameMods>();
             var total = mods.Sum(m => m.Mods.Count);
             Section($"Mods · {total:N0} across {mods.Count} games", "Installed via Steam Workshop, Vortex and r2modman. Read-only. Click a game for its list.");
             if (mods.Count == 0)
