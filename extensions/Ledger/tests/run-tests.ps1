@@ -14,12 +14,12 @@ $fail = 0
 function Check($name, $cond) {
     if ($cond) { Write-Host "PASS $name" } else { Write-Host "FAIL $name" -ForegroundColor Red; $script:fail++ }
 }
-function Call($type, $method, $argz) { $type.GetMethod($method, $bf).Invoke($null, $argz) }
+function Call($type, $method, $argz) { return ,($type.GetMethod($method, $bf).Invoke($null, $argz)) }
 
 # --- parsing ---
-$html = Get-Content (Join-Path $PSScriptRoot "licenses-sample.html") -Raw
+$html = [string][IO.File]::ReadAllText((Join-Path $PSScriptRoot "licenses-sample.html"))
 $lic = Call $LP "Parse" @($html)
-Check "parses all rows" ($lic.Count -eq 9)
+Check "parses all rows" ($lic.Count -eq 10)
 Check "remove-link div stripped" (($lic | ? { $_.Name -eq "Guns 'n Goblins Demo" }).Count -eq 1)
 Check "html entities decoded" (($lic | ? { $_.Name -eq "Hades & Friends" }).Count -eq 1)
 Check "both date orders" ((($lic | ? Name -eq "Portal 2").Date.ToString("yyyy-MM-dd")) -eq "2019-03-03")
