@@ -3,6 +3,7 @@ using Playnite.SDK.Events;
 using Playnite.SDK.Plugins;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Windows.Controls;
 
 namespace Ledger
@@ -38,6 +39,16 @@ namespace Ledger
                 var cmd = a.Arguments.Length > 0 ? a.Arguments[0] : "";
                 if (cmd == "render") RenderToPng();
                 else if (cmd == "snapshot") Snapshots.TryWriteToday(force: true);
+                else if (cmd == "render-mods")
+                {
+                    var all = ModIndex.Build(PlayniteApi, GetPluginUserDataPath());
+                    var gm = a.Arguments.Length > 1 ? all.FirstOrDefault(m => (m.Game?.Name ?? m.Label).IndexOf(Uri.UnescapeDataString(a.Arguments[1]), StringComparison.OrdinalIgnoreCase) >= 0) : all.FirstOrDefault();
+                    if (gm != null)
+                    {
+                        ModsView.FetchTitlesNow(gm, GetPluginUserDataPath());
+                        RenderElement(ModsView.BuildList(gm, out _), System.IO.Path.Combine(GetPluginUserDataPath(), "render-mods.png"), 900);
+                    }
+                }
                 else if (cmd == "import-steam") SteamAcquisitions.RunInteractive(silent: true);
             });
         }
@@ -70,6 +81,24 @@ namespace Ledger
                 logger.Error(e, "Ledger render failed");
                 return null;
             }
+        }
+
+        internal void RenderElement(System.Windows.UIElement content, string path, int width)
+        {
+            try
+            {
+                var host = new System.Windows.Controls.Border { Child = content, Width = width };
+                host.SetResourceReference(System.Windows.Controls.Border.BackgroundProperty, "WindowBackgourndBrush");
+                host.Measure(new System.Windows.Size(width, double.PositiveInfinity));
+                host.Arrange(new System.Windows.Rect(host.DesiredSize));
+                host.UpdateLayout();
+                var bmp = new System.Windows.Media.Imaging.RenderTargetBitmap((int)host.ActualWidth, (int)host.ActualHeight, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                bmp.Render(host);
+                var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bmp));
+                using (var fs = System.IO.File.Create(path)) enc.Save(fs);
+            }
+            catch (Exception e) { logger.Error(e, "Ledger render failed"); }
         }
 
         private static object DetachFromScroll(LedgerView view)
@@ -153,6 +182,17 @@ namespace Ledger
                 {
                     var h = HistoryIndex.Build(PlayniteApi, GetPluginUserDataPath()).For(game.Id);
                     PlayniteApi.Dialogs.ShowMessage(h == null ? "No data." : LedgerView.Tooltip(h), "Ledger");
+                }
+            };
+            yield return new GameMenuItem
+            {
+                MenuSection = "Ledger",
+                Description = "Mods…",
+                Action = _ =>
+                {
+                    var gm = ModIndex.Build(PlayniteApi, GetPluginUserDataPath()).FirstOrDefault(m => m.Game?.Id == game.Id);
+                    if (gm == null) PlayniteApi.Dialogs.ShowMessage($"No mods found for {game.Name} (Workshop, Vortex, r2modman).", "Ledger");
+                    else ModsView.Show(PlayniteApi, gm, GetPluginUserDataPath());
                 }
             };
         }

@@ -60,6 +60,7 @@ namespace Ledger
             BuildMostPlayed(games);
             BuildBacklog(games);
             BuildStaleInstalls(games);
+            BuildMods();
             BuildFooter();
         }
 
@@ -223,6 +224,37 @@ namespace Ledger
             if (stale.Any(h => !h.Game.InstallSize.HasValue))
             {
                 root.Children.Add(Text("Some sizes are unknown. Playnite scans install sizes in the background after imports.", 12, dim: true));
+            }
+        }
+
+        private void BuildMods()
+        {
+            List<GameMods> mods;
+            try { mods = ModIndex.Build(api, plugin.GetPluginUserDataPath()); }
+            catch (Exception e) { root.Children.Add(Text("Mod scan failed: " + e.Message, 12, dim: true)); return; }
+            var total = mods.Sum(m => m.Mods.Count);
+            Section($"Mods · {total:N0} across {mods.Count} games", "Installed via Steam Workshop, Vortex and r2modman. Read-only. Click a game for its list.");
+            if (mods.Count == 0)
+            {
+                root.Children.Add(Text("No mods found.", 12, dim: true));
+                return;
+            }
+            var max = mods.Max(m => m.Mods.Count);
+            foreach (var gm in mods.Take(15))
+            {
+                var grid = Row(new GridLength(280), new GridLength(1, GridUnitType.Star), new GridLength(260));
+                var name = new TextBlock { FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+                var link = new Hyperlink(new Run(gm.Game?.Name ?? gm.Label)) { TextDecorations = null, Cursor = Cursors.Hand };
+                link.SetResourceReference(TextElement.ForegroundProperty, "TextBrush");
+                var captured = gm;
+                link.Click += (s, e) => ModsView.Show(api, captured, plugin.GetPluginUserDataPath());
+                name.Inlines.Add(link);
+                Place(grid, name, 0);
+                var sources = string.Join(" · ", gm.Mods.GroupBy(m => m.Source).OrderByDescending(g => g.Count()).Select(g => $"{g.Count()} {g.Key}"));
+                Place(grid, Bar(gm.Mods.Count, max, sources), 1);
+                var meta = (gm.TotalSize > 0 ? Size(gm.TotalSize) : "") + (gm.LastUpdated.HasValue ? $" · updated {gm.LastUpdated:yyyy-MM-dd}" : "");
+                Place(grid, Text(meta.Trim(' ', '·'), 12, dim: true), 2);
+                root.Children.Add(grid);
             }
         }
 
