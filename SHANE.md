@@ -51,6 +51,10 @@ shelf) · Timeline (play calendar heatmap + (started vs got, comfort/forgotten, 
 | Detail drawer | click any game anywhere: cover, Play/Install/Show in library, key numbers, HLTB progress bars, dated timeline (acquired, first/last played, status, sessions, purchases), mods, notes |
 | Discover tab | Free now/next: Epic freeGamesPromotions (official) + GamerPower (Steam, GOG; third-party giveaways labelled), "already in your library" check, daily + notification for new freebies. Picks: SteamSpy tag profile of your top-25 Steam games (hours-weighted, generic tags dropped) → tag lists → shortlist 150 verified against their own top tags → cosine × reviews³ × popularity; "Because you like <tag>", "More like <game>"; owned anywhere excluded. Weekly, cached (state/steamspy, covers). Plus own unplayed by genre |
 | Lists tab | user lists (lists.json): owned games or not-owned Steam apps, ordered, notes, emoji icon; "Play next" + "Want to buy" by default; Play next strip on Overview; drawer "＋ List" |
+| Smart lists | ⚡ list = saved FilterState evaluated live, sort options, "Open as filter"; made from current filters |
+| Goals | goals.json, yearly: finish N (status events), start N from backlog (first played), shrink unplayed pile (vs first snapshot of year), spend cap, hours cap; rings with pace on Overview |
+| List export | Copy as Markdown; standalone HTML page with embedded covers (exports/) |
+| Drag-to-reorder | tiles in normal lists (8px threshold so clicks still work) |
 | Right-click menus | every game tile: Details, Play/Install, Show in library, Add to list ▸ (incl. New list…); Discover picks: Open on Steam, Add to list, Not interested (dismissed.json, excluded from picks) |
 | Customise (⚙) | show/hide + reorder tabs, show/hide sections per tab (settings TabOrder/HiddenTabs/HiddenSections, keys "Tab/Section") |
 | UI perf | tabs build lazily on first view; data loads off the UI thread; any render error is shown in-page (SafeShow) not thrown |

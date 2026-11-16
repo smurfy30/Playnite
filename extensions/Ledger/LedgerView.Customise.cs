@@ -19,7 +19,7 @@ namespace Ledger
             return new Dictionary<string, List<KeyValuePair<string, Action>>>
             {
                 ["Overview"] = new List<KeyValuePair<string, Action>> {
-                    S("Cards", () => BuildCards(g, d)), S("At a glance", () => { if (period.IsAll) BuildOverviewCharts(g); }),
+                    S("Cards", () => BuildCards(g, d)), S("Goals", () => BuildGoals(d)), S("At a glance", () => { if (period.IsAll) BuildOverviewCharts(g); }),
                     S("Insights", () => BuildInsights(g, d)), S("On this day", () => BuildOnThisDay(g)),
                     S("Play next list", () => BuildPlayNextStrip(d)), S("Up next", () => BuildUpNextTiles(up(), 8)), S("Recent activity", BuildRecent) },
                 ["Discover"] = new List<KeyValuePair<string, Action>> { S("Discover", () => BuildDiscover(d)) },

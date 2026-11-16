@@ -23,6 +23,29 @@ namespace Ledger
         public string Icon { get; set; } = "📋";
         public string Description { get; set; }
         public List<ListItem> Items { get; set; } = new List<ListItem>();
+        /// <summary>Smart list: membership is this filter, evaluated live (Items unused).</summary>
+        public FilterState Smart { get; set; }
+        public string Sort { get; set; } = "Best match";
+        public int Limit { get; set; } = 24;
+        public bool IsSmart => Smart != null;
+    }
+
+    /// <summary>A yearly target, measured from what Ledger records (never typed-in progress).</summary>
+    public class Goal
+    {
+        public Guid Id { get; set; } = Guid.NewGuid();
+        public string Kind { get; set; }      // beat | start | shrink | spend | hours
+        public double Target { get; set; }
+        public int Year { get; set; } = DateTime.Now.Year;
+
+        public static readonly Dictionary<string, string> Kinds = new Dictionary<string, string>
+        {
+            ["beat"] = "Finish games (mark Beaten/Completed)",
+            ["start"] = "Start games I own but never played",
+            ["shrink"] = "Shrink the never-played pile by",
+            ["spend"] = "Spend at most (on games + in-game)",
+            ["hours"] = "Play at most (hours, tracked)",
+        };
     }
 
     /// <summary>
@@ -84,6 +107,20 @@ namespace Ledger
             l.Items.RemoveAt(i);
             l.Items.Insert(j, it);
         });
+
+        private string GoalsPath => Path.Combine(dir, "goals.json");
+
+        public List<Goal> Goals()
+        {
+            try { return File.Exists(GoalsPath) ? Serialization.FromJsonFile<List<Goal>>(GoalsPath) ?? new List<Goal>() : new List<Goal>(); }
+            catch { return new List<Goal>(); }
+        }
+
+        public void SaveGoals(List<Goal> goals)
+        {
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(GoalsPath, Serialization.ToJson(goals, true));
+        }
 
         public HashSet<string> Dismissed()
         {

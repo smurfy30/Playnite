@@ -176,10 +176,12 @@ namespace Ledger
             public string Tip { get; set; }
             public Action OnClick { get; set; }
             public ContextMenu Menu { get; set; }
+            /// <summary>Set to make the tile draggable; drops on another draggable tile call onDrop(from, to).</summary>
+            public string DragKey { get; set; }
         }
 
         /// <summary>Cover-art tiles (2:3), title + two meta lines under each. Wraps to width.</summary>
-        public static FrameworkElement Tiles(IEnumerable<Tile> tiles, double width = 120)
+        public static FrameworkElement Tiles(IEnumerable<Tile> tiles, double width = 120, Action<string, string> onDrop = null)
         {
             var wrap = new WrapPanel { Margin = new Thickness(0, 6, 0, 6) };
             foreach (var t in tiles)
@@ -202,6 +204,7 @@ namespace Ledger
                 if (t.Line2 != null) { var l = T(t.Line2, 11, dim: true); l.TextWrapping = TextWrapping.NoWrap; l.TextTrimming = TextTrimming.CharacterEllipsis; card.Children.Add(l); }
                 Hover(card, t.OnClick, scale: true);
                 if (t.Menu != null) card.ContextMenu = t.Menu;
+                if (t.DragKey != null && onDrop != null) MakeDraggable(card, t.DragKey, onDrop);
                 wrap.Children.Add(card);
             }
             return wrap;
@@ -224,6 +227,66 @@ namespace Ledger
                 return b;
             }
             catch { return null; }
+        }
+
+        /// <summary>Drag a tile onto another to reorder. Drag starts after 8px so clicks still click.</summary>
+        private static void MakeDraggable(FrameworkElement card, string key, Action<string, string> onDrop)
+        {
+            Point? down = null;
+            card.AllowDrop = true;
+            card.PreviewMouseLeftButtonDown += (s, e) => down = e.GetPosition(card);
+            card.PreviewMouseMove += (s, e) =>
+            {
+                if (down == null || e.LeftButton != MouseButtonState.Pressed) return;
+                var p = e.GetPosition(card);
+                if (Math.Abs(p.X - down.Value.X) < 8 && Math.Abs(p.Y - down.Value.Y) < 8) return;
+                down = null;
+                card.Opacity = 0.4;
+                DragDrop.DoDragDrop(card, new DataObject("ledger-tile", key), DragDropEffects.Move);
+                card.Opacity = 1;
+            };
+            card.PreviewMouseLeftButtonUp += (s, e) => down = null;
+            card.DragOver += (s, e) => { e.Effects = e.Data.GetDataPresent("ledger-tile") ? DragDropEffects.Move : DragDropEffects.None; e.Handled = true; };
+            card.DragEnter += (s, e) => { if (e.Data.GetDataPresent("ledger-tile")) card.RenderTransform = new TranslateTransform(6, 0); };
+            card.DragLeave += (s, e) => card.RenderTransform = null;
+            card.Drop += (s, e) =>
+            {
+                card.RenderTransform = null;
+                var from = e.Data.GetData("ledger-tile") as string;
+                if (from != null && from != key) onDrop(from, key);
+                e.Handled = true;
+            };
+        }
+
+        /// <summary>Progress ring: arc for value/target, big number in the middle, label under.</summary>
+        public static FrameworkElement Ring(double value, double target, string centre, string label, string sub, bool overIsBad = false, double size = 130)
+        {
+            var panel = new StackPanel { Width = size + 40, Margin = new Thickness(0, 0, 24, 12) };
+            var grid = new Grid { Width = size, Height = size, HorizontalAlignment = HorizontalAlignment.Center };
+            var r = size / 2;
+            var track = Arc(r, r * 0.82, -90, 359.99);
+            track.Fill = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255));
+            grid.Children.Add(track);
+            var frac = target <= 0 ? 0 : Math.Min(1, value / target);
+            if (frac > 0)
+            {
+                var arc = Arc(r, r * 0.82, -90, Math.Max(0.5, 359.99 * frac));
+                var over = target > 0 && value > target;
+                arc.Fill = over && overIsBad ? new SolidColorBrush(Color.FromRgb(0xE5, 0x73, 0x73))
+                         : frac >= 1 ? new SolidColorBrush(Color.FromRgb(0x81, 0xC7, 0x84)) : SeriesBrush(0);
+                grid.Children.Add(arc);
+            }
+            var mid = new StackPanel { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
+            var c = T(centre, 22, bold: true); c.HorizontalAlignment = HorizontalAlignment.Center; c.TextWrapping = TextWrapping.NoWrap;
+            mid.Children.Add(c);
+            var pct = T(target > 0 ? $"{100 * value / target:0}%" : "", 11, dim: true); pct.HorizontalAlignment = HorizontalAlignment.Center;
+            mid.Children.Add(pct);
+            grid.Children.Add(mid);
+            panel.Children.Add(grid);
+            var l = T(label, 12, bold: true); l.TextAlignment = TextAlignment.Center; l.Margin = new Thickness(0, 6, 0, 0);
+            panel.Children.Add(l);
+            if (sub != null) { var sb = T(sub, 11, dim: true); sb.TextAlignment = TextAlignment.Center; panel.Children.Add(sb); }
+            return panel;
         }
 
         /// <summary>Hand cursor + slight fade/lift on hover for clickable things.</summary>
