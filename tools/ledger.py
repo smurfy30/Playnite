@@ -1,0 +1,156 @@
+"""Query Ledger's snapshots and acquisition records. Read-only; every number is computed on read.
+
+  python tools/ledger.py stats                 library breakdown by store / installed / played
+  python tools/ledger.py game <name>           one game: store, playtime, last played, acquired, history
+  python tools/ledger.py daily [--days N]      playtime per day, from differences between snapshots
+  python tools/ledger.py backlog [--store S]   owned but never played, oldest acquisition first
+  add --json to any command for machine-readable output (hub, Bridge).
+
+Data dir: $PLAYNITE_DATA or E:/projects/playnite-data.
+"""
+import argparse
+import glob
+import json
+import os
+import sys
+from collections import Counter, defaultdict
+
+DATA = os.environ.get("PLAYNITE_DATA", r"E:\projects\playnite-data")
+LEDGER = os.path.join(DATA, "ExtensionsData", "0ca0d44d-044a-4eb0-b6b8-863e05a6df89")
+SNAPS = os.path.join(LEDGER, "snapshots")
+
+
+def snapshot_files():
+    return sorted(glob.glob(os.path.join(SNAPS, "*.jsonl")))
+
+
+def load_snapshot(path):
+    with open(path, encoding="utf-8") as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
+def latest():
+    files = snapshot_files()
+    if not files:
+        sys.exit(f"no snapshots in {SNAPS}. Start Playnite with Ledger installed.")
+    return load_snapshot(files[-1]), os.path.basename(files[-1])[:10]
+
+
+def acquisitions():
+    p = os.path.join(LEDGER, "acquisitions.json")
+    if not os.path.exists(p):
+        return {}
+    with open(p, encoding="utf-8-sig") as f:
+        return {r["GameId"]: r for r in json.load(f)}
+
+
+def hours(sec):
+    return round((sec or 0) / 3600, 1)
+
+
+def cmd_stats(a):
+    rows, day = latest()
+    by_store = Counter(r["source"] or "(none)" for r in rows)
+    out = {
+        "snapshot": day,
+        "games": len(rows),
+        "byStore": dict(by_store.most_common()),
+        "installed": sum(r["installed"] for r in rows),
+        "neverPlayed": sum(1 for r in rows if not r["playtimeSec"]),
+        "totalHours": hours(sum(r["playtimeSec"] or 0 for r in rows)),
+        "acquisitionDatesKnown": len(acquisitions()),
+    }
+    return out, lambda o: "\n".join(f"{k:22} {v}" for k, v in o.items())
+
+
+def cmd_game(a):
+    rows, _ = latest()
+    q = a.name.lower()
+    hits = [r for r in rows if q in r["name"].lower()]
+    acq = acquisitions()
+    hist = defaultdict(list)
+    ids = {r["id"] for r in hits}
+    for f in snapshot_files():
+        for r in load_snapshot(f):
+            if r["id"] in ids:
+                hist[r["id"]].append({"day": os.path.basename(f)[:10], "hours": hours(r["playtimeSec"])})
+    out = []
+    for r in hits:
+        ac = acq.get(r["id"])
+        out.append({
+            "name": r["name"], "store": r["source"], "hours": hours(r["playtimeSec"]),
+            "lastPlayed": (r["lastActivity"] or "")[:10] or None, "installed": r["installed"],
+            "acquired": ac["Acquired"][:10] if ac else None, "license": ac["License"] if ac else None,
+            "history": hist[r["id"]],
+        })
+
+    def fmt(o):
+        if not o:
+            return "no match"
+        lines = []
+        for g in o:
+            lines.append(f"{g['name']}  [{g['store']}]")
+            lines.append(f"  playtime {g['hours']}h · last played {g['lastPlayed'] or 'never'} · installed {g['installed']}")
+            lines.append(f"  acquired {g['acquired'] or 'unknown (run Ledger → Import Steam acquisition dates)'}"
+                         + (f" via \"{g['license']}\"" if g["license"] else ""))
+            if len(g["history"]) > 1:
+                lines.append("  history " + ", ".join(f"{h['day']}={h['hours']}h" for h in g["history"]))
+        return "\n".join(lines)
+    return out, fmt
+
+
+def cmd_daily(a):
+    files = snapshot_files()[-(a.days + 1):]
+    out = []
+    prev = None
+    for f in files:
+        cur = {r["id"]: r for r in load_snapshot(f)}
+        if prev is not None:
+            played = []
+            for gid, r in cur.items():
+                d = (r["playtimeSec"] or 0) - (prev.get(gid, {}).get("playtimeSec") or 0)
+                if d > 0:
+                    played.append({"name": r["name"], "hours": hours(d)})
+            played.sort(key=lambda x: -x["hours"])
+            out.append({"day": os.path.basename(f)[:10], "hours": round(sum(p["hours"] for p in played), 1), "games": played})
+        prev = cur
+
+    def fmt(o):
+        if not o:
+            return f"need at least two snapshots (have {len(snapshot_files())}). Snapshots accumulate daily."
+        return "\n".join(f"{d['day']}  {d['hours']:5}h  " + ", ".join(f"{g['name']} {g['hours']}h" for g in d["games"][:5]) for d in o)
+    return out, fmt
+
+
+def cmd_backlog(a):
+    rows, _ = latest()
+    acq = acquisitions()
+    out = []
+    for r in rows:
+        if r["playtimeSec"] or r["hidden"]:
+            continue
+        if a.store and (r["source"] or "").lower() != a.store.lower():
+            continue
+        ac = acq.get(r["id"])
+        out.append({"name": r["name"], "store": r["source"], "acquired": ac["Acquired"][:10] if ac else None, "installed": r["installed"]})
+    out.sort(key=lambda x: (x["acquired"] is None, x["acquired"] or "", x["name"]))
+    return out, lambda o: f"{len(o)} never played\n" + "\n".join(
+        f"{g['acquired'] or '          '}  {g['store'] or '':10} {'*' if g['installed'] else ' '} {g['name']}" for g in o)
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--json", action="store_true")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("stats")
+    g = sub.add_parser("game"); g.add_argument("name")
+    d = sub.add_parser("daily"); d.add_argument("--days", type=int, default=14)
+    b = sub.add_parser("backlog"); b.add_argument("--store")
+    a = p.parse_args()
+    out, fmt = {"stats": cmd_stats, "game": cmd_game, "daily": cmd_daily, "backlog": cmd_backlog}[a.cmd](a)
+    sys.stdout.reconfigure(encoding="utf-8")
+    print(json.dumps(out, indent=2, ensure_ascii=False) if a.json else fmt(out))
+
+
+if __name__ == "__main__":
+    main()
