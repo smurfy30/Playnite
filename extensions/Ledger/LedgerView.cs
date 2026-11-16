@@ -110,13 +110,13 @@ namespace Ledger
             var g = Scope(d.Visible);
             var builders = new Action[]
             {
-                () => { BuildCards(g, d); BuildInsights(g, d); BuildOnThisDay(g); BuildUpNext(d.UpNext.Where(x => g.Contains(x.H)).ToList(), 5, withPick: true); BuildRecent(); },
-                () => { BuildShelves(g); BuildQuickWins(g); BuildUpNext(d.UpNext.Where(x => g.Contains(x.H)).ToList(), 15, withPick: true); BuildOldestUnplayed(g); },
+                () => { BuildCards(g, d); if (period.IsAll) BuildOverviewCharts(g); BuildInsights(g, d); BuildOnThisDay(g); BuildUpNextTiles(d.UpNext.Where(x => g.Contains(x.H)).ToList(), 8); BuildRecent(); },
+                () => { BuildShelves(g); BuildQuickWinTiles(g); BuildUpNextTiles(d.UpNext.Where(x => g.Contains(x.H)).ToList(), 16); BuildOldestUnplayed(g); },
                 () => { BuildDrives(g); BuildDiskTrend(); BuildStaleInstalls(g); BuildInstalledNeverPlayed(g); },
                 () => { BuildStats(g, d); },
                 () => { BuildMoney(d, g); },
                 () => { BuildWishlist(d); },
-                () => { BuildHeatmap(d, g); BuildTimeline(g); BuildComfortAndForgotten(g); BuildMostPlayed(g); },
+                () => { BuildHeatmap(d, g); BuildTimelineColumns(g); BuildComfortTiles(g); BuildTimeline(g); BuildMostPlayed(g); },
                 () => { BuildMods(d.Mods); BuildFooter(); },
             };
 
@@ -156,6 +156,7 @@ namespace Ledger
                 if (caveat != null) root.Children.Add(Text(caveat, 12, dim: true));
             }
             Func<GameHistory, double> hrs = h => HoursOf(h, d);
+            BuildStatsCharts(g, d);
             BuildBreakdown("Genres", g, h => h.Game.Genres?.Select(x => x.Name), hours: hrs);
             BuildBreakdown("Stores", g, h => new[] { h.Game.Source?.Name ?? "(none)" }, hours: hrs);
             BuildBreakdown("Release decade", g, h => h.Game.ReleaseYear.HasValue ? new[] { (h.Game.ReleaseYear.Value / 10 * 10) + "s" } : null, sortByKey: true, hours: hrs);
@@ -507,11 +508,15 @@ namespace Ledger
             if (rows.Count == 0) return;
             rows = sortByKey ? rows.OrderBy(r => r.Key).ToList() : rows.OrderByDescending(r => r.Hours).ThenByDescending(r => r.Owned).ToList();
 
-            Section(title, "Owned · share played (bar) · hours");
+            Section(title, "Owned · share played (bar) · hours. Click a row for its games.");
             var maxHours = rows.Max(r => r.Hours);
+            Drill drill = null;
             foreach (var r in rows.Take(top))
             {
                 var grid = Row(new GridLength(220), new GridLength(70), new GridLength(1, GridUnitType.Star), new GridLength(16), new GridLength(1, GridUnitType.Star));
+                var key = r.Key;
+                grid.Background = System.Windows.Media.Brushes.Transparent;
+                Charts.Hover(grid, () => ShowDrill(drill, $"{title}: {key}", games.Where(h => !h.IsTool && (keys(h) ?? Enumerable.Empty<string>()).Contains(key))));
                 Place(grid, Text(r.Key, 13), 0);
                 Place(grid, Text(r.Owned.ToString("N0"), 12, dim: true), 1);
                 Place(grid, Bar(r.Played, Math.Max(r.Owned, 1), $"{Pct(r.Played, r.Owned)} played"), 2);
@@ -519,6 +524,7 @@ namespace Ledger
                 root.Children.Add(grid);
             }
             if (rows.Count > top) root.Children.Add(Text($"+{rows.Count - top} more", 12, dim: true));
+            drill = NewDrill();
         }
 
         private static string NormalizeMethod(string m)

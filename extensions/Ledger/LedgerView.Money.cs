@@ -51,26 +51,14 @@ namespace Ledger
                 (mi.Unattributed > 0 ? $" {M(mi.Unattributed, sym)} couldn't be matched to a game in your library (DLC for games you no longer own, gifts…)." : ""), 11, dim: true));
 
             // Spend per year (games vs in-game), always all years so the trend is visible.
-            var byYear = mi.Transactions.Where(t => !t.IsWalletTopUp).GroupBy(t => t.Date.Year).OrderByDescending(g => g.Key).ToList();
-            if (byYear.Count > 0)
-            {
-                Section("Spend per year", "Games (bar) and in-game purchases (faint bar).");
-                var max = (double)byYear.Max(g => Math.Max(Sum(g.Where(t => !t.IsInGame)), Sum(g.Where(t => t.IsInGame))));
-                foreach (var y in byYear)
-                {
-                    var gs = Sum(y.Where(t => !t.IsInGame)); var ig = Sum(y.Where(t => t.IsInGame));
-                    var grid = Row(new GridLength(60), new GridLength(1, GridUnitType.Star), new GridLength(200));
-                    Place(grid, Text(y.Key.ToString(), 15, bold: true), 0);
-                    var bars = new StackPanel();
-                    bars.Children.Add(Bar((double)gs, Math.Max(max, 1), $"{M(gs, sym)} games"));
-                    var b2 = Bar((double)ig, Math.Max(max, 1), $"{M(ig, sym)} in-game"); b2.Opacity = 0.6; b2.Margin = new Thickness(0, 2, 12, 0);
-                    bars.Children.Add(b2);
-                    Place(grid, bars, 1);
-                    Place(grid, Text($"{y.Count(t => !t.IsInGame && !t.IsRefund)} purchases", 12, dim: true), 2);
-                    grid.Margin = new Thickness(0, 4, 0, 4);
-                    root.Children.Add(grid);
-                }
-            }
+            var row = Panels();
+            root.Children.Add(row);
+            var outer = root; root = new StackPanel(); BuildSpendColumns(mi); row.Children.Add(root); root = outer;
+            var shares = games.Where(g => g.Total > 0).OrderByDescending(g => g.Total).ToList();
+            if (shares.Count > 0)
+                row.Children.Add(Charts.Donut("Where the money went", shares.Take(7).Select(g => new Slice { Label = g.H.Game.Name, Value = (double)g.Total })
+                    .Concat(new[] { new Slice { Label = "Everything else", Value = (double)shares.Skip(7).Sum(g => g.Total), Detail = $"{shares.Count - 7} other games" } }),
+                    M(shares.Sum(g => g.Total), sym), "attributed", 180, sort: false, fmt: x => sym + x.ToString("N0")));
 
             MoneyList("Biggest spends", "Base game + DLC + in-game, lifetime.", games.Where(g => g.Total > 0).OrderByDescending(g => g.Total).Take(12),
                 g => M(g.Total, sym), g => string.Join(" · ", new[] { g.InGame > 0 ? $"{M(g.Paid, sym)} game + {M(g.InGame, sym)} in-game" : null, g.PerHour.HasValue ? $"{M(g.PerHour.Value, sym)}/h" : null, $"{g.H.Hours:N0}h" }.Where(x => x != null)));
@@ -120,7 +108,7 @@ namespace Ledger
             var end = DateTime.Today;
             var start = end.AddDays(-7 * 52 - (int)end.DayOfWeek);
             var max = byDay.Values.DefaultIfEmpty(0).Max();
-            var grid = new UniformGrid { Rows = 7, Columns = 53, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 4, 0, 4) };
+            var grid = new UniformGrid { Rows = 7, Columns = 53, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 0) };
             // UniformGrid fills row by row; we want columns = weeks, rows = weekdays.
             var cells = new Border[7, 53];
             for (var r = 0; r < 7; r++)
@@ -142,7 +130,37 @@ namespace Ledger
                 if (h > 0) cell.Opacity = 0.25 + 0.75 * Math.Min(1, h / Math.Max(1, max));
                 cell.ToolTip = $"{day:ddd d MMM yyyy}: {(h > 0 ? $"{h:0.#}h" : "no tracked play")}";
             }
-            root.Children.Add(grid);
+            // Month labels above the week columns, weekday labels on the left, less→more legend below.
+            const double pitch = 16; // 13 + margins
+            var months = new Canvas { Height = 16, Width = 53 * pitch, Margin = new Thickness(30, 0, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
+            for (var day = start; day <= end; day = day.AddDays(1))
+            {
+                if (day.Day != 1) continue;
+                var m = Text(day.ToString("MMM"), 10, dim: true);
+                Canvas.SetLeft(m, (int)((day - start).TotalDays / 7) * pitch);
+                months.Children.Add(m);
+            }
+            var dayLabels = new Grid { Width = 30 };
+            for (var r = 0; r < 7; r++) dayLabels.RowDefinitions.Add(new RowDefinition { Height = new GridLength(pitch) });
+            foreach (var (r, label) in new[] { (1, "Mon"), (3, "Wed"), (5, "Fri") })
+            {
+                var t = Text(label, 10, dim: true); Grid.SetRow(t, r); dayLabels.Children.Add(t);
+            }
+            var body = new StackPanel { Orientation = Orientation.Horizontal };
+            body.Children.Add(dayLabels);
+            body.Children.Add(grid);
+            root.Children.Add(months);
+            root.Children.Add(body);
+            var legend = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(30, 4, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
+            legend.Children.Add(Text("less ", 10, dim: true));
+            foreach (var o in new[] { 0.08, 0.3, 0.55, 0.8, 1.0 })
+            {
+                var b = new Border { Width = 11, Height = 11, Margin = new Thickness(1.5), CornerRadius = new CornerRadius(2), Opacity = o };
+                b.SetResourceReference(Border.BackgroundProperty, "GlyphBrush");
+                legend.Children.Add(b);
+            }
+            legend.Children.Add(Text(" more", 10, dim: true));
+            root.Children.Add(legend);
 
             if (byDay.Count > 0)
             {
