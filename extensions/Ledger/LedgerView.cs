@@ -57,6 +57,7 @@ namespace Ledger
             BuildCards(games);
             BuildOnThisDay(games);
             BuildTimeline(games);
+            BuildUpNext(idx.Games);
             BuildMostPlayed(games);
             BuildBacklog(games);
             BuildStaleInstalls(games);
@@ -164,6 +165,41 @@ namespace Ledger
                 if (list.Count > top.Count) names.Inlines.Add(new Run($"  +{list.Count - top.Count} more"));
                 Place(grid, names, 2);
                 grid.Margin = new Thickness(0, 4, 0, 4);
+                root.Children.Add(grid);
+            }
+        }
+
+        private void BuildUpNext(List<GameHistory> all)
+        {
+            var ranked = UpNext.Rank(all);
+            if (ranked.Count == 0) return;
+
+            var header = new DockPanel { LastChildFill = false };
+            Section("Up next", "Unplayed games ranked by your taste (hours per genre), review score and whether it's installed.");
+            var pick = new Button { Content = "🎲  Pick for me", Padding = new Thickness(12, 4, 12, 4), Margin = new Thickness(0, 0, 0, 8), HorizontalAlignment = HorizontalAlignment.Left };
+            pick.Click += (s, e) =>
+            {
+                var p = UpNext.Pick(ranked);
+                if (p == null) return;
+                api.MainView.SwitchToLibraryView();
+                api.MainView.SelectGame(p.H.Game.Id);
+                api.Dialogs.ShowMessage(
+                    $"{p.H.Game.Name}\n\n" +
+                    (p.MatchedGenres.Count > 0 ? $"You've put a lot of hours into {string.Join(", ", p.MatchedGenres)}.\n" : "") +
+                    (p.Rating.HasValue ? $"Rated {p.Rating}/100.\n" : "") +
+                    (p.H.Game.IsInstalled ? "Already installed." : "Not installed yet.") +
+                    (p.H.Acquired.HasValue ? $"\nYou've owned it since {p.H.Acquired:MMMM yyyy}." : ""),
+                    "Ledger · Pick for me");
+            };
+            root.Children.Add(pick);
+
+            foreach (var sug in ranked.Take(10))
+            {
+                var grid = Row(new GridLength(300), new GridLength(1, GridUnitType.Star), new GridLength(70), new GridLength(80));
+                Place(grid, LinkBlock(sug.H), 0);
+                Place(grid, Text(string.Join(" · ", sug.MatchedGenres), 12, dim: true), 1);
+                Place(grid, Text(sug.Rating.HasValue ? $"★ {sug.Rating}" : "", 12, dim: true), 2);
+                Place(grid, Text(sug.H.Game.IsInstalled ? "installed" : "", 12, dim: true), 3);
                 root.Children.Add(grid);
             }
         }
