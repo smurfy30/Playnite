@@ -54,7 +54,15 @@ namespace Ledger
                         added = g.Added,
                         installed = g.IsInstalled,
                         hidden = g.Hidden,
-                        completion = g.CompletionStatus?.Name
+                        completion = g.CompletionStatus?.Name,
+                        // metadata coverage, so "how many games lack covers" is a query too
+                        hasCover = !string.IsNullOrEmpty(g.CoverImage),
+                        hasBackground = !string.IsNullOrEmpty(g.BackgroundImage),
+                        hasIcon = !string.IsNullOrEmpty(g.Icon),
+                        hasDescription = !string.IsNullOrEmpty(g.Description),
+                        genres = g.Genres?.Select(x => x.Name).ToList(),
+                        releaseYear = g.ReleaseYear,
+                        installSize = g.InstallSize
                     };
                     sb.AppendLine(Serialization.ToJson(row, false));
                 }

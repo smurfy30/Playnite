@@ -18,6 +18,7 @@ namespace Playnite
         public const string InstallAddon = "installaddon";
         public const string Search = "search";
         public const string Restore = "restore";
+        public const string DownloadMetadata = "downloadmetadata"; // shane/main
     }
 
     public class PlayniteUriHandler : IUriHandlerAPI

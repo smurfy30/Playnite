@@ -1168,6 +1168,19 @@ namespace Playnite.DesktopApp.ViewModels
                     Window.Window.RestoreWindow();
                     break;
 
+                // shane/main: playnite://playnite/downloadmetadata[/all]
+                // Runs the normal metadata downloader with the user's configured sources, filling
+                // only empty fields (SkipExistingValues) on every non-hidden game. "all" overwrites.
+                case UriCommands.DownloadMetadata:
+                    {
+                        var settings = Playnite.SDK.Data.Serialization.GetClone(AppSettings.MetadataSettings);
+                        settings.SkipExistingValues = !(arguments.Length > 1 && arguments[1] == "all");
+                        var games = Database.Games.Where(g => !g.Hidden).ToList();
+                        Logger.Info($"URI metadata download: {games.Count} games, skipExisting={settings.SkipExistingValues}");
+                        _ = DownloadMetadata(settings, games);
+                    }
+                    break;
+
                 default:
                     Logger.Warn($"Uknown URI command {command}");
                     break;
