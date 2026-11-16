@@ -20,7 +20,7 @@ namespace Ledger
     /// </summary>
     internal partial class LedgerView : UserControl
     {
-        public static readonly string[] Tabs = { "Overview", "Backlog", "Installs", "Stats", "Money", "Timeline", "Mods" };
+        public static readonly string[] Tabs = { "Overview", "Backlog", "Installs", "Stats", "Money", "Wishlist", "Timeline", "Mods" };
 
         private readonly Ledger plugin;
         private readonly IPlayniteAPI api;
@@ -51,6 +51,7 @@ namespace Ledger
             public List<Suggestion> UpNext;
             public ActivityIndex Activity;
             public MoneyIndex Money;
+            public List<WishEntry> Wishlist;
             public string Error;
         }
 
@@ -65,6 +66,7 @@ namespace Ledger
                 d.Mods = ModIndex.Build(api, plugin.GetPluginUserDataPath());
                 d.Activity = ActivityIndex.Build(api, plugin.GetPluginUserDataPath());
                 d.Money = MoneyIndex.Build(plugin.Money, d.Index.Games, plugin.GetPluginUserDataPath());
+                try { d.Wishlist = WishlistIndex.Build(api, plugin.GetPluginUserDataPath(), d.Index.Games); } catch { d.Wishlist = new List<WishEntry>(); }
             }
             catch (Exception e)
             {
@@ -113,6 +115,7 @@ namespace Ledger
                 () => { BuildDrives(g); BuildStaleInstalls(g); BuildInstalledNeverPlayed(g); },
                 () => { BuildStats(g, d); },
                 () => { BuildMoney(d, g); },
+                () => { BuildWishlist(d); },
                 () => { BuildHeatmap(d, g); BuildTimeline(g); BuildComfortAndForgotten(g); BuildMostPlayed(g); },
                 () => { BuildMods(d.Mods); BuildFooter(); },
             };
