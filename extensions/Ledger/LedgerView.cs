@@ -55,6 +55,7 @@ namespace Ledger
             var games = idx.Games.Where(h => !h.Game.Hidden).ToList();
             BuildHeader(games);
             BuildCards(games);
+            BuildOnThisDay(games);
             BuildTimeline(games);
             BuildMostPlayed(games);
             BuildBacklog(games);
@@ -90,12 +91,43 @@ namespace Ledger
             wrap.Children.Add(Card(games.Count(h => h.Game.IsInstalled).ToString("N0"), "installed"));
             wrap.Children.Add(Card(games.Count(h => h.FirstPlayed.HasValue).ToString("N0"), "first-play dates"));
             wrap.Children.Add(Card(games.Count(h => h.Acquired.HasValue).ToString("N0"), "acquisition dates"));
+            var waits = games.Where(h => h.DaysToFirstPlay.HasValue).Select(h => h.DaysToFirstPlay.Value).OrderBy(d => d).ToList();
+            if (waits.Count >= 5)
+            {
+                var median = waits[waits.Count / 2];
+                wrap.Children.Add(Card(median == 0 ? "same day" : $"{median:N0} days", $"median wait, purchase → first play ({waits.Count})"));
+            }
             root.Children.Add(wrap);
+        }
+
+        private void BuildOnThisDay(List<GameHistory> games)
+        {
+            var today = DateTime.Today;
+            bool Same(DateTime? d) => d.HasValue && d.Value.Month == today.Month && d.Value.Day == today.Day && d.Value.Year < today.Year;
+            var events = games.Where(h => !h.IsTool)
+                .SelectMany(h => new[]
+                {
+                    Same(h.FirstPlayed) ? new { h, when = h.FirstPlayed.Value, what = "started" } : null,
+                    Same(h.Acquired) ? new { h, when = h.Acquired.Value, what = "got" } : null
+                })
+                .Where(e => e != null).OrderByDescending(e => e.when).ToList();
+            if (events.Count == 0) return;
+
+            Section("On this day", today.ToString("d MMMM"));
+            foreach (var e in events.Take(8))
+            {
+                var years = today.Year - e.when.Year;
+                var tb = new TextBlock { FontSize = 13, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 2) };
+                tb.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
+                tb.Inlines.Add(new Run($"{years} year{(years == 1 ? "" : "s")} ago you {e.what} "));
+                tb.Inlines.Add(GameLink(e.h, e.h.Hours > 0 ? $" · {e.h.Hours:N0}h since" : " · still unplayed"));
+                root.Children.Add(tb);
+            }
         }
 
         private void BuildTimeline(List<GameHistory> games)
         {
-            Section("Timeline", "Games by the year you first played them (earliest Steam achievement unlock).");
+            Section("Timeline", "Per year: games you started (first Steam achievement) vs games you bought (Steam licenses).");
             var dated = games.Where(h => h.FirstPlayed.HasValue && !h.IsTool).ToList();
             if (dated.Count == 0)
             {
@@ -103,14 +135,24 @@ namespace Ledger
                 return;
             }
 
-            var years = dated.GroupBy(h => h.FirstPlayed.Value.Year).OrderByDescending(g => g.Key).ToList();
-            var max = years.Max(y => y.Count());
-            foreach (var y in years)
+            var started = dated.GroupBy(h => h.FirstPlayed.Value.Year).ToDictionary(g => g.Key, g => g.ToList());
+            var bought = games.Where(h => h.Acquired.HasValue && !h.IsTool).GroupBy(h => h.Acquired.Value.Year).ToDictionary(g => g.Key, g => g.Count());
+            var years = started.Keys.Union(bought.Keys).OrderByDescending(y => y).ToList();
+            var max = Math.Max(started.Values.Select(v => v.Count).DefaultIfEmpty(0).Max(), bought.Values.DefaultIfEmpty(0).Max());
+            foreach (var year in years)
             {
-                var top = y.OrderByDescending(h => h.Hours).Take(6).ToList();
-                var grid = Row(new GridLength(60), new GridLength(160), new GridLength(1, GridUnitType.Star));
-                Place(grid, Text(y.Key.ToString(), 16, bold: true), 0);
-                Place(grid, Bar(y.Count(), max, $"{y.Count()} started"), 1);
+                var list = started.TryGetValue(year, out var l) ? l : new List<GameHistory>();
+                var got = bought.TryGetValue(year, out var b) ? b : 0;
+                var top = list.OrderByDescending(h => h.Hours).Take(6).ToList();
+                var grid = Row(new GridLength(60), new GridLength(170), new GridLength(1, GridUnitType.Star));
+                Place(grid, Text(year.ToString(), 16, bold: true), 0);
+                var bars = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                bars.Children.Add(Bar(list.Count, max, $"{list.Count} started"));
+                var gotBar = Bar(got, max, $"{got} bought");
+                gotBar.Opacity = 0.6;
+                gotBar.Margin = new Thickness(0, 2, 12, 0);
+                bars.Children.Add(gotBar);
+                Place(grid, bars, 1);
                 var names = new TextBlock { TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center, FontSize = 13 };
                 names.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
                 for (var i = 0; i < top.Count; i++)
@@ -118,8 +160,9 @@ namespace Ledger
                     if (i > 0) names.Inlines.Add(new Run(" · "));
                     names.Inlines.Add(GameLink(top[i], $" ({top[i].Hours:N0}h)"));
                 }
-                if (y.Count() > top.Count) names.Inlines.Add(new Run($"  +{y.Count() - top.Count} more"));
+                if (list.Count > top.Count) names.Inlines.Add(new Run($"  +{list.Count - top.Count} more"));
                 Place(grid, names, 2);
+                grid.Margin = new Thickness(0, 4, 0, 4);
                 root.Children.Add(grid);
             }
         }
